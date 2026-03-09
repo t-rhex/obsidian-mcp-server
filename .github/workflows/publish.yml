@@ -1,0 +1,195 @@
+name: publish
+
+on:
+  push:
+    tags: ["v*"]
+    branches: [main]
+  release:
+    types: [published]
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  # ─── Full CI test matrix (same as ci.yml) ──────────────────────────
+  # Skipped on push-to-main since ci.yml already covers that.
+  test:
+    name: Test (${{ matrix.os }}, Node ${{ matrix.node-version }})
+    if: github.event_name != 'push' || startsWith(github.ref, 'refs/tags/')
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        node-version: [18, 20, 22]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+
+      - name: Configure git for tests
+        run: |
+          git config --global user.name "CI"
+          git config --global user.email "ci@test.local"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check
+        run: npx tsc --noEmit
+
+      - name: Build
+        run: npm run build
+
+      - name: Run tests
+        run: npm test
+
+  # ─── Check whether we should publish ───────────────────────────────
+  check-version:
+    name: Check version
+    runs-on: ubuntu-latest
+    outputs:
+      should_publish: ${{ steps.check.outputs.should_publish }}
+      version: ${{ steps.check.outputs.version }}
+      is_tag: ${{ steps.check.outputs.is_tag }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Determine publish eligibility
+        id: check
+        run: |
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          echo "version=$PKG_VERSION" >> "$GITHUB_OUTPUT"
+
+          # Get currently published version (empty if never published)
+          NPM_VERSION=$(npm view mcp-obsidian-vault version 2>/dev/null || echo "")
+          echo "Published npm version: $NPM_VERSION"
+          echo "Package.json version: $PKG_VERSION"
+
+          SHOULD_PUBLISH="false"
+          IS_TAG="false"
+
+          # Tag push: verify tag matches package.json
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            IS_TAG="true"
+            TAG_VERSION="${GITHUB_REF#refs/tags/v}"
+            echo "Tag version: $TAG_VERSION"
+            if [[ "$TAG_VERSION" != "$PKG_VERSION" ]]; then
+              echo "::error::Tag version ($TAG_VERSION) does not match package.json ($PKG_VERSION)"
+              exit 1
+            fi
+            if [[ "$PKG_VERSION" != "$NPM_VERSION" ]]; then
+              SHOULD_PUBLISH="true"
+            else
+              echo "Version $PKG_VERSION already published — skipping"
+            fi
+
+          # GitHub Release or manual dispatch: always publish if version differs
+          elif [[ "$GITHUB_EVENT_NAME" == "release" ]] || [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
+            if [[ "$PKG_VERSION" != "$NPM_VERSION" ]]; then
+              SHOULD_PUBLISH="true"
+            else
+              echo "Version $PKG_VERSION already published — skipping"
+            fi
+
+          # Push to main: auto-publish if version changed
+          elif [[ "$GITHUB_REF" == "refs/heads/main" ]]; then
+            if [[ "$PKG_VERSION" != "$NPM_VERSION" ]]; then
+              SHOULD_PUBLISH="true"
+              echo "Version changed ($NPM_VERSION → $PKG_VERSION) — will publish"
+            else
+              echo "Version unchanged ($PKG_VERSION) — skipping publish"
+            fi
+          fi
+
+          echo "is_tag=$IS_TAG" >> "$GITHUB_OUTPUT"
+          echo "should_publish=$SHOULD_PUBLISH" >> "$GITHUB_OUTPUT"
+          echo "Decision: should_publish=$SHOULD_PUBLISH"
+
+  # ─── Publish to npm ────────────────────────────────────────────────
+  publish:
+    name: Publish to npm
+    needs: [test, check-version]
+    if: |
+      always() &&
+      needs.check-version.outputs.should_publish == 'true' &&
+      needs.check-version.result == 'success' &&
+      (needs.test.result == 'success' || needs.test.result == 'skipped')
+    runs-on: ubuntu-latest
+    environment: npm
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Publish
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Summary
+        run: |
+          VERSION=${{ needs.check-version.outputs.version }}
+          echo "## Published mcp-obsidian-vault@${VERSION}" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- npm: https://www.npmjs.com/package/mcp-obsidian-vault/v/${VERSION}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Install: \`npx mcp-obsidian-vault@${VERSION}\`" >> "$GITHUB_STEP_SUMMARY"
+
+  # ─── Create GitHub Release (tag push only) ─────────────────────────
+  release:
+    name: Create GitHub Release
+    needs: [publish, check-version]
+    if: needs.publish.result == 'success' && needs.check-version.outputs.is_tag == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Extract changelog for this version
+        id: changelog
+        run: |
+          VERSION=${{ needs.check-version.outputs.version }}
+          # Extract the section for this version from CHANGELOG.md
+          # Matches from "## [version]" to the next "## [" or end of file
+          NOTES=$(awk "/^## \\[${VERSION}\\]/{found=1; next} /^## \\[/{if(found) exit} found{print}" CHANGELOG.md)
+          if [[ -z "$NOTES" ]]; then
+            NOTES="Release v${VERSION}"
+          fi
+          # Write to file to preserve newlines
+          echo "$NOTES" > /tmp/release-notes.md
+          echo "Generated release notes for v${VERSION}"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION=${{ needs.check-version.outputs.version }}
+          gh release create "v${VERSION}" \
+            --title "v${VERSION}" \
+            --notes-file /tmp/release-notes.md \
+            --verify-tag
