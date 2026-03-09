@@ -247,6 +247,43 @@ From then on, set `GIT_AUTO_SYNC=true` to automatically commit and push after ev
 
 > **Don't want git?** That's fine — skip all of this. The server works without git. Just set `OBSIDIAN_VAULT_PATH` and go.
 
+## Syncing Between Laptop and Phone
+
+Use git sync to keep your vault in sync across devices. The MCP server handles the laptop side; your phone uses the Obsidian Git community plugin.
+
+### Setup
+
+1. **Laptop** — configure this MCP server with `GIT_AUTO_SYNC=true` pointing at a **private** GitHub repo
+2. **Phone (iOS)** — install [Obsidian Git](https://github.com/Vinzent03/obsidian-git) community plugin, or use [Working Copy](https://workingcopy.app/) as a git client and point Obsidian at the cloned repo
+3. **Phone (Android)** — install [Obsidian Git](https://github.com/Vinzent03/obsidian-git) community plugin (has built-in git support on Android)
+
+### How it works
+
+```
+Laptop (MCP server)                    GitHub (private repo)                Phone (Obsidian Git)
+       │                                       │                                   │
+       ├── edit note ──► auto-commit + push ──►│                                   │
+       │                                       │◄── pull on open ──────────────────┤
+       │                                       │                                   ├── edit note
+       │                                       │◄── commit + push ─────────────────┤
+       │◄── pull (next auto-sync) ────────────┤                                   │
+```
+
+- **Laptop → Phone**: MCP auto-sync pushes after every write. Open Obsidian on your phone and the Git plugin pulls latest.
+- **Phone → Laptop**: Obsidian Git plugin commits and pushes. Next time the MCP server writes, auto-sync pulls before pushing (pull → commit → push).
+- **Conflict resolution**: `GIT_PULL_REBASE=true` (default) keeps history clean. If a merge conflict occurs, the `git_sync` tool reports it and you can resolve manually.
+
+### Recommended Obsidian Git plugin settings (phone)
+
+| Setting | Value | Why |
+|---------|-------|-----|
+| Auto pull on open | Enabled | Get latest notes when you open the app |
+| Auto push after commit | Enabled | Push your edits immediately |
+| Pull on interval | 5–10 min | Catch changes while the app is open |
+| Commit message | `mobile: {{date}}` | Distinguish mobile vs MCP commits |
+
+> **Important**: Use a **private** GitHub repo for your vault. Your notes are personal — don't expose them publicly.
+
 ## Security
 
 - **Path traversal prevention** — all paths validated against vault root, including symlink resolution via `realpath`
