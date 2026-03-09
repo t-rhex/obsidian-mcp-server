@@ -1,0 +1,27 @@
+{
+  "name": "obsidian-mcp-server",
+  "version": "0.1.0",
+  "description": "MCP server for Obsidian vault — direct filesystem access, no Obsidian required",
+  "main": "build/index.js",
+  "type": "module",
+  "bin": {
+    "obsidian-mcp": "build/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node build/index.js",
+    "dev": "tsc --watch"
+  },
+  "keywords": ["mcp", "obsidian", "vault", "markdown"],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.27.1",
+    "gray-matter": "^4.0.3",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0"
+  }
+}
