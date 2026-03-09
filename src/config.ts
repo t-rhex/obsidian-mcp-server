@@ -38,6 +38,12 @@ export interface Config {
   gitTimeoutMs: number;
   /** Use --rebase on git pull */
   gitPullRebase: boolean;
+  /** Subfolder for task notes (relative to vault root) */
+  tasksFolder: string;
+  /** Subfolder for decision records (relative to vault root) */
+  decisionsFolder: string;
+  /** Subfolder for discovery/TIL notes (relative to vault root) */
+  discoveriesFolder: string;
 }
 
 const DEFAULT_CONFIG: Omit<Config, "vaultPath"> = {
@@ -55,6 +61,9 @@ const DEFAULT_CONFIG: Omit<Config, "vaultPath"> = {
   gitBranch: "main",
   gitTimeoutMs: 30_000,
   gitPullRebase: true,
+  tasksFolder: "Tasks",
+  decisionsFolder: "Decisions",
+  discoveriesFolder: "Discoveries",
 };
 
 export function loadConfig(): Config {
@@ -129,6 +138,9 @@ export function loadConfig(): Config {
     gitBranch: process.env.GIT_BRANCH ?? DEFAULT_CONFIG.gitBranch,
     gitTimeoutMs: parsePositiveInt(process.env.GIT_TIMEOUT_MS, DEFAULT_CONFIG.gitTimeoutMs),
     gitPullRebase: parseBool(process.env.GIT_PULL_REBASE, DEFAULT_CONFIG.gitPullRebase),
+    tasksFolder: process.env.TASKS_FOLDER ?? DEFAULT_CONFIG.tasksFolder,
+    decisionsFolder: process.env.DECISIONS_FOLDER ?? DEFAULT_CONFIG.decisionsFolder,
+    discoveriesFolder: process.env.DISCOVERIES_FOLDER ?? DEFAULT_CONFIG.discoveriesFolder,
   };
 }
 

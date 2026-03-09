@@ -11,6 +11,8 @@ An MCP (Model Context Protocol) server that gives AI assistants direct filesyste
 - **Tag management** — read, add, remove tags from frontmatter (deduplicates automatically)
 - **Daily notes** — get, create, or append by date (`today`, `yesterday`, `2025-03-08`, etc.)
 - **Git sync (optional)** — commit, pull, push, and full sync via git CLI. Auto-sync after every write pushes to remote automatically. Git is entirely optional — the server works perfectly without it.
+- **Task orchestration** — create, claim, update, and complete tasks with structured frontmatter. Turn your vault into an agent task queue with dependency tracking, scope isolation, and auto-generated dashboards.
+- **Context persistence** — log decisions and discoveries as structured notes so future sessions don't lose context. `get_context` gives any new session a full briefing of the vault's current state.
 
 ## Installation
 
@@ -42,6 +44,36 @@ Add to your `claude_desktop_config.json`:
     }
   }
 }
+```
+
+### opencode
+
+Add to `~/.config/opencode/opencode.json` (opencode has no `env` field — use `sh -c`):
+
+```json
+{
+  "mcp": {
+    "obsidian": {
+      "type": "local",
+      "command": ["sh", "-c", "OBSIDIAN_VAULT_PATH=/path/to/your/vault GIT_AUTO_SYNC=true npx -y mcp-obsidian-vault"],
+      "enabled": true
+    }
+  }
+}
+```
+
+### Codex CLI
+
+Add to `~/.codex/config.toml`:
+
+```toml
+[mcp_servers.obsidian]
+command = "npx"
+args = ["-y", "mcp-obsidian-vault"]
+
+[mcp_servers.obsidian.env]
+OBSIDIAN_VAULT_PATH = "/path/to/your/vault"
+GIT_AUTO_SYNC = "true"
 ```
 
 ### With git auto-sync
@@ -200,6 +232,284 @@ message: "update notes"          # optional commit message
 | `remote_add` | Add a git remote |
 | `remote_list` | List configured remotes |
 
+### `create_task`
+
+Create a new task in the vault's task queue. Tasks are markdown notes in the `Tasks/` folder with structured YAML frontmatter.
+
+```
+title: "Implement auth module"
+description: "Build JWT-based authentication for the API."
+priority: "high"                 # "critical" | "high" | "medium" | "low"
+type: "code"                     # "code" | "research" | "writing" | "maintenance" | "other"
+due: "2026-03-15"               # optional deadline
+depends_on: ["task-abc-123"]     # task IDs that must complete first
+context_notes: ["Projects/api"]  # vault notes with relevant context
+scope: ["src/auth.ts"]           # advisory: files this task intends to modify
+acceptance_criteria: ["Tests pass", "Docs written"]
+source: "github-issue-42"       # where this task came from
+timeout_minutes: 120             # max time before agent is considered stuck
+```
+
+### `list_tasks`
+
+Query tasks by status, priority, type, or assignee.
+
+```
+status: "pending"                # filter by status, or "all"
+priority: "high"                 # filter by priority, or "all"
+type: "code"                     # filter by type, or "all"
+assignee: "claude-code-1"       # filter by assignee
+unassigned_only: true            # only unclaimed tasks
+limit: 50                        # max results
+include_completed: false         # include terminal states
+```
+
+### `claim_task`
+
+Atomically claim a pending task for an agent. Prevents race conditions — if two agents try to claim the same task, the second gets a `TASK_ALREADY_CLAIMED` error.
+
+```
+task_id: "task-2026-03-09-abc123"
+assignee: "claude-code-1"
+```
+
+Checks dependency completion before allowing claim. Blocked tasks cannot be claimed until all `depends_on` tasks are completed.
+
+### `update_task`
+
+Update a task's status, priority, or append progress to the Agent Log.
+
+```
+task_id: "task-2026-03-09-abc123"
+status: "in_progress"            # validates state transitions
+log_entry: "Started implementation. Found 3 API endpoints to modify."
+priority: "critical"             # change priority if needed
+```
+
+Valid status transitions are enforced:
+- `pending` → `claimed`, `blocked`, `cancelled`
+- `claimed` → `in_progress`, `pending` (unclaim), `blocked`, `cancelled`
+- `in_progress` → `completed`, `failed`, `blocked`, `pending`, `cancelled`
+- `blocked` → `pending`, `cancelled`
+- `completed` → `pending` (reopen)
+- `failed` → `pending` (retry — clears assignee, increments `retry_count`)
+- `cancelled` → `pending` (reactivate)
+
+### `complete_task`
+
+Mark a task as completed (or failed/cancelled) with a summary and deliverables.
+
+```
+task_id: "task-2026-03-09-abc123"
+summary: "Auth module implemented with JWT support."
+deliverables: ["src/auth.ts", "src/auth.test.ts", "https://github.com/org/repo/pull/42"]
+status: "completed"              # "completed" | "failed" | "cancelled"
+error_reason: "Missing dependency"  # if status is "failed"
+```
+
+Automatically unblocks dependent tasks when a task is completed — sets them from `blocked` to `pending`.
+
+### `create_project`
+
+Create a project with multiple sub-tasks in one call. Wire up inter-task dependencies using array indices. Independent tasks can be claimed by different agents in parallel.
+
+```
+title: "Auth Rewrite"
+description: "Rewrite authentication to use JWT tokens."
+priority: "high"
+tasks: [
+  { title: "Design API schema", type: "research" },
+  { title: "Implement JWT", type: "code", depends_on_indices: [0] },
+  { title: "Write tests", type: "code", depends_on_indices: [1] },
+  { title: "Update docs", type: "writing" }      # parallel — no deps
+]
+context_notes: ["Projects/api-design"]
+tags: ["auth"]
+```
+
+Returns all task IDs. Tasks 0 and 3 are immediately claimable (pending). Tasks 1 and 2 are blocked until their dependencies complete.
+
+### `get_project_status`
+
+Get rollup status of a project and all its sub-tasks.
+
+```
+project_id: "proj-2026-03-09-abc123"
+```
+
+Returns:
+- Progress: `"3/7 tasks completed (43%)"`
+- Status breakdown: pending, claimed, in_progress, blocked, completed, failed
+- Active agents: who's working on what
+- Overdue tasks: tasks past their `timeout_minutes`
+- Blockers: which blocked tasks are waiting on what
+
+### `get_context`
+
+Get a structured briefing of the vault's current state. Call this **first** in any new session.
+
+```
+project_id: "proj-..."           # focus on a specific project (optional)
+hours: 48                         # how far back to look (default: 48)
+include_completed: true           # include recent completions (default: true)
+```
+
+Returns: active projects with progress, in-progress work, pending tasks ready to claim, blockers, failures, overdue tasks, recent decisions, recent discoveries, and pinned context notes (`pinned: true` in frontmatter).
+
+### `log_decision`
+
+Log an architectural or design decision as a structured record in the `Decisions/` folder.
+
+```
+title: "Use JWT over session tokens"
+context: "Need stateless auth for microservices."
+decision: "JWT with RS256 signing, 15-minute access tokens, refresh token rotation."
+alternatives: ["Session tokens with Redis", "API keys"]
+consequences: ["Positive: Stateless", "Negative: Revocation requires deny-list"]
+status: "accepted"               # "proposed" | "accepted" | "deprecated" | "superseded"
+tags: ["auth", "architecture"]
+project: "proj-..."              # optional link to project
+task_id: "task-..."              # optional link to task
+```
+
+### `log_discovery`
+
+Log a gotcha, TIL, or finding as a structured note in the `Discoveries/` folder.
+
+```
+title: "gray-matter crashes on undefined values"
+discovery: "js-yaml throws when serializing objects with undefined. Must strip before serialize."
+impact: "high"                   # "critical" | "high" | "medium" | "low"
+recommendation: "Filter frontmatter through Object.entries().filter() first."
+category: "bug"                  # "bug" | "gotcha" | "pattern" | "tool" | "config" | "performance" | "security" | "other"
+tags: ["yaml", "serialization"]
+related_files: ["src/frontmatter.ts"]
+```
+
+## Agent Workflow
+
+The task tools are designed for AI agent orchestration. Here's the typical workflow:
+
+```
+1. Human/agent creates a task:       create_task(title: "Fix login bug", ...)
+2. Agent finds available work:        list_tasks(status: "pending", unassigned_only: true)
+3. Agent claims a task:               claim_task(task_id: "task-...", assignee: "claude-1")
+4. Agent starts work:                 update_task(task_id: "task-...", status: "in_progress")
+5. Agent logs progress:               update_task(task_id: "task-...", log_entry: "Found root cause...")
+6. Agent finishes:                    complete_task(task_id: "task-...", summary: "Fixed!", deliverables: [...])
+```
+
+### Multi-Agent Project Workflow
+
+```
+1. Human creates a project:          create_project(title: "Auth Rewrite", tasks: [...])
+2. Agent A finds work:               list_tasks(project: "proj-...", status: "pending")
+3. Agent A claims "Design API":      claim_task(task_id: "task-1", assignee: "agent-a")
+4. Agent B finds parallel work:      list_tasks(project: "proj-...", status: "pending")
+5. Agent B claims "Update docs":     claim_task(task_id: "task-4", assignee: "agent-b")
+   (Both agents work in parallel)
+6. Agent A completes design:         complete_task(task_id: "task-1", ...)
+   → "Implement JWT" is auto-unblocked from blocked → pending
+7. Agent C claims "Implement JWT":   claim_task(task_id: "task-2", assignee: "agent-c")
+8. Human checks progress:            get_project_status(project_id: "proj-...")
+   → "Auth Rewrite: 2/4 tasks completed (50%)"
+```
+
+### Task Note Structure
+
+Tasks are stored as markdown notes in the `Tasks/` folder (configurable via `TASKS_FOLDER`):
+
+```markdown
+---
+id: task-2026-03-09-abc123
+title: Implement auth module
+status: in_progress
+priority: high
+type: code
+assignee: claude-code-1
+created: "2026-03-09T14:00:00.000Z"
+updated: "2026-03-09T15:45:00.000Z"
+depends_on: []
+scope:
+  - src/auth.ts
+context_notes:
+  - Projects/api-design
+timeout_minutes: 120
+tags:
+  - auth
+  - api
+---
+
+## Description
+
+Build JWT-based authentication for the API.
+
+## Acceptance Criteria
+
+- [ ] Tests pass
+- [ ] Docs written
+
+## Agent Log
+
+- **[2026-03-09 14:30:00]** Starting implementation. Found 3 endpoints to modify.
+- **[2026-03-09 15:45:00] [COMPLETED]** Auth module implemented with JWT support.
+
+## Deliverables
+
+- src/auth.ts
+- src/auth.test.ts
+```
+
+A `DASHBOARD.md` is auto-generated in the tasks folder after every mutation, showing summary counts, active tasks, pending queue, blocked tasks, and recent completions.
+
+### Robustness Features
+
+- **Retry failed tasks** — failed/cancelled tasks can be retried via `update_task(status: "pending")`. Assignee is cleared, `retry_count` incremented, and the task re-enters the queue.
+- **Unclaim stuck tasks** — if an agent crashes, a claimed task can be unclaimed via `update_task(status: "pending")` to make it available again.
+- **Timeout detection** — `list_tasks` returns `is_overdue: true` for tasks that have exceeded their `timeout_minutes` since `claimed_at`.
+- **Dependency validation** — `create_task` warns if `depends_on` references nonexistent task IDs.
+- **Dashboard health** — all mutation responses include `dashboard_refreshed: true/false` so callers know if the dashboard is current.
+- **ISO timestamps** — `created`, `updated`, `completed_at`, and `claimed_at` use full ISO 8601 datetimes for precise ordering.
+- **Scope is advisory** — `scope[]` tells agents which files a task intends to modify, but is not enforced by the server. Agents should respect it to avoid conflicts.
+
+### Known Limitations
+
+- **No true atomic claims** — the claim operation is read-check-write without file locking. This is safe for a single MCP server process (Node.js event loop), but if multiple server processes share the same vault directory, a race condition is possible. For multi-process setups, use external coordination.
+- **Scope is not enforced** — the server does not block writes outside a task's `scope[]`. Enforcement would require middleware in the vault write path.
+- **No automatic timeout recovery** — `is_overdue` is reported in `list_tasks` output, but timed-out tasks are not automatically released. A dispatcher (Phase 2) will handle this.
+
+## Agent Prompts
+
+The server exposes three **MCP prompts** that tell AI agents how to use the tools. MCP clients (Claude Desktop, opencode, etc.) can discover and inject these prompts automatically.
+
+| Prompt | Purpose | Use When |
+|--------|---------|----------|
+| `task-worker` | Find, claim, and complete tasks autonomously | Spawning a coding agent (Claude Code, Codex) |
+| `project-manager` | Plan projects, decompose into tasks, monitor progress | Orchestrating multi-agent work |
+| `vault-assistant` | Read, search, and organize notes | General vault management |
+
+### Using Prompts via MCP
+
+MCP clients can request prompts via `prompts/get`:
+
+```json
+{ "method": "prompts/get", "params": { "name": "task-worker", "arguments": { "agent_id": "claude-1", "project_id": "proj-abc" } } }
+```
+
+The `task-worker` prompt accepts:
+- `agent_id` — unique name for this agent (default: `agent-1`)
+- `project_id` — restrict to a specific project (optional)
+- `task_types` — comma-separated types: `code,research,writing,maintenance` (optional)
+
+### Using Prompts Manually
+
+The same prompts are available as markdown files in the [`prompts/`](./prompts) directory:
+- [`prompts/task-worker.md`](./prompts/task-worker.md)
+- [`prompts/project-manager.md`](./prompts/project-manager.md)
+- [`prompts/vault-assistant.md`](./prompts/vault-assistant.md)
+
+Copy-paste these into your agent's system prompt, replacing `{{agent_id}}` and `{{task_types}}` with actual values.
+
 ## Configuration
 
 All configuration is via environment variables.
@@ -221,6 +531,9 @@ All configuration is via environment variables.
 | `MAX_SEARCH_RESULTS` | `50` | Maximum search results returned |
 | `SEARCH_TIMEOUT_MS` | `30000` | Search timeout in milliseconds |
 | `NOTE_EXTENSIONS` | `.md,.markdown` | File extensions treated as notes (comma-separated) |
+| `TASKS_FOLDER` | `Tasks` | Subfolder for task notes (relative to vault root) |
+| `DECISIONS_FOLDER` | `Decisions` | Subfolder for decision records (relative to vault root) |
+| `DISCOVERIES_FOLDER` | `Discoveries` | Subfolder for discovery/TIL notes (relative to vault root) |
 
 ### Optional — Git Sync
 
@@ -300,13 +613,21 @@ Laptop (MCP server)                    GitHub (private repo)                Phon
 ## Project Structure
 
 ```
+prompts/
+├── task-worker.md        # System prompt for coding/worker agents
+├── project-manager.md    # System prompt for orchestrator agents
+└── vault-assistant.md    # System prompt for note management agents
+
 src/
 ├── index.ts              # MCP server entry point, tool registration, auto-sync wiring
 ├── config.ts             # Environment variable parsing with validation
+├── prompts.ts            # MCP prompt registrations (discoverable by clients)
 ├── errors.ts             # Typed error codes and safe handler wrapper
 ├── vault.ts              # Filesystem operations (path safety, atomic writes, list, search)
 ├── frontmatter.ts        # YAML frontmatter parse/serialize, tag extraction
 ├── git.ts                # Git CLI wrapper with locking and timeouts
+├── task-schema.ts        # Task types, ID generation, validation, body template
+├── task-dashboard.ts     # Task scanning, dashboard generation
 └── tools/
     ├── read-note.ts
     ├── create-note.ts
@@ -317,7 +638,17 @@ src/
     ├── manage-tags.ts
     ├── daily-note.ts
     ├── wikilinks.ts
-    └── git-sync.ts
+    ├── git-sync.ts
+    ├── create-task.ts    # Create tasks with structured frontmatter
+    ├── list-tasks.ts     # Query tasks by filters
+    ├── claim-task.ts     # Atomic task claiming with race condition prevention
+    ├── update-task.ts    # Update status, append to agent log
+    ├── complete-task.ts  # Mark done, link deliverables, unblock dependents
+    ├── create-project.ts # Create project with sub-tasks in one call
+    ├── get-project-status.ts  # Rollup progress, agents, blockers
+    ├── get-context.ts    # Session briefing from vault state
+    ├── log-decision.ts   # Structured decision records
+    └── log-discovery.ts  # Structured discovery/TIL notes
 ```
 
 ## License
