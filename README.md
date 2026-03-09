@@ -140,11 +140,31 @@ graph TB
 
 ## Quick Start
 
+### 1. Install
+
+Pick your MCP client and add the config:
+
+<details open>
+<summary><b>Claude Code</b></summary>
+
 ```bash
-npx mcp-obsidian-vault
+claude mcp add obsidian -- npx -y mcp-obsidian-vault
 ```
 
-### Claude Desktop
+Then set your vault path:
+
+```bash
+claude mcp add obsidian \
+  -e OBSIDIAN_VAULT_PATH=/path/to/your/vault \
+  -e GIT_AUTO_SYNC=true \
+  -- npx -y mcp-obsidian-vault
+```
+</details>
+
+<details>
+<summary><b>Claude Desktop</b></summary>
+
+Add to `claude_desktop_config.json`:
 
 ```json
 {
@@ -159,10 +179,12 @@ npx mcp-obsidian-vault
   }
 }
 ```
+</details>
 
-### opencode
+<details>
+<summary><b>opencode</b></summary>
 
-opencode has no `env` field — use `sh -c` with inline env vars:
+Add to `~/.config/opencode/opencode.json` (opencode has no `env` field — use `sh -c`):
 
 ```json
 {
@@ -178,8 +200,10 @@ opencode has no `env` field — use `sh -c` with inline env vars:
   }
 }
 ```
+</details>
 
-### Codex CLI
+<details>
+<summary><b>Codex CLI</b></summary>
 
 ```toml
 [mcp_servers.obsidian]
@@ -190,14 +214,110 @@ args = ["-y", "mcp-obsidian-vault"]
 OBSIDIAN_VAULT_PATH = "/path/to/your/vault"
 GIT_AUTO_SYNC = "true"
 ```
+</details>
 
-### From Source
+<details>
+<summary><b>From source</b></summary>
 
 ```bash
 git clone https://github.com/t-rhex/obsidian-mcp-server.git
 cd obsidian-mcp-server
 npm install && npm run build
 OBSIDIAN_VAULT_PATH=/path/to/vault node build/index.js
+```
+</details>
+
+### 2. Try It
+
+Once configured, open a chat with your AI agent and try these:
+
+```
+"Read my Projects/roadmap note"
+```
+
+```
+"Search my vault for anything about authentication"
+```
+
+```
+"Create a task to refactor the auth module, high priority"
+```
+
+```
+"What's the current context? Call get_context."
+```
+
+That's it. The agent now has full access to your vault through 27 MCP tools. Keep reading for real-world workflows.
+
+### 3. Real-World Workflows
+
+#### Save context before ending a session
+
+When you're wrapping up a session, tell your agent:
+
+```
+"Log a decision: we chose Zod over Joi for validation because of TypeScript inference."
+```
+
+```
+"Log a discovery: the Stripe webhook endpoint requires idempotency keys or charges double."
+```
+
+These get saved as structured notes in `Decisions/` and `Discoveries/`. The next session picks them up automatically.
+
+#### Pick up where you left off
+
+Start any new session with:
+
+```
+"Call get_context to see what's in progress."
+```
+
+The agent gets back: active projects, in-progress tasks, blockers, recent decisions, recent discoveries, and pending work. No manual briefing needed.
+
+#### Break a feature into tasks
+
+```
+"Create a project called 'Payment Integration' with these tasks:
+  1. Research Stripe API (research)
+  2. Implement checkout flow (code, depends on 1)
+  3. Add webhook handler (code, depends on 1)
+  4. Write integration tests (code, depends on 2 and 3)
+  5. Update API docs (writing)"
+```
+
+This creates a project folder with 5 task files, a dependency graph, and a dashboard. Tasks 1 and 5 are immediately claimable; the rest auto-unblock as dependencies complete.
+
+#### Append to an existing project
+
+```
+"Add these tasks to the Payment Integration project:
+  - Add retry logic for failed charges
+  - Security audit of payment flow (depends on retry logic)"
+```
+
+#### Multi-session continuity
+
+```
+Session 1: "Create a task to fix the memory leak in the worker pool"
+           → agent claims it, investigates, logs progress, runs out of context
+
+Session 2: "Call get_context"
+           → sees the in-progress task, picks up from the agent log
+           → completes the fix, marks task done
+
+Session 3: "Call get_context"
+           → sees the completed task, continues to next priority
+```
+
+#### Daily notes as a work journal
+
+```
+"Append to today's daily note: deployed v2.1 to staging, waiting on QA"
+```
+
+```
+"What did I log yesterday?"
 ```
 
 ---
@@ -970,7 +1090,7 @@ src/
 
 prompts/                  # Agent persona prompts (ship with npm)
 skills/                   # Agent skills (ship with npm, skills.sh compatible)
-test/run.mjs              # 334 integration tests
+test/run.mjs              # 342 integration tests
 ```
 
 ---
@@ -980,7 +1100,7 @@ test/run.mjs              # 334 integration tests
 ```bash
 npm install
 npm run build             # TypeScript → build/
-npm test                  # 334 integration tests
+npm test                  # 342 integration tests
 npm run dev               # tsc --watch
 ```
 
