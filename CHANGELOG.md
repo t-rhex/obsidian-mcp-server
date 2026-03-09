@@ -34,7 +34,15 @@ All notable changes to this project will be documented in this file.
   - `project-manager` — system prompt for orchestrator agents that plan projects and monitor progress
   - `vault-assistant` — system prompt for note management agents
 - **`TASKS_FOLDER` environment variable** — configurable task folder location (default: `Tasks`)
-- 131 new integration tests (165 total, up from 34)
+- **Context persistence** — 3 new tools for cross-session knowledge continuity:
+  - `get_context` — structured session briefing: active projects, in-progress work, pending tasks, blockers, failures, recent decisions, recent discoveries, pinned notes. Call this first in every new session.
+  - `log_decision` — create structured decision records (ADR-lite) in `Decisions/` folder with context, rationale, alternatives, and consequences
+  - `log_discovery` — capture gotchas, TILs, and findings in `Discoveries/` folder with impact, recommendation, and related files
+- **Pinned context notes** — notes with `pinned: true` in frontmatter are surfaced by `get_context`
+- **`DECISIONS_FOLDER` environment variable** — configurable decisions folder (default: `Decisions`)
+- **`DISCOVERIES_FOLDER` environment variable** — configurable discoveries folder (default: `Discoveries`)
+- **Agent skill** — `obsidian-task-orchestration` skill for Claude Code / opencode / skills.sh, teaching agents the context-first workflow
+- 181 new integration tests (215 total, up from 34)
 
 ## [0.1.2] - 2026-03-09
 

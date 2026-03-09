@@ -24,6 +24,9 @@ const { getProjectStatusHandler } = await import("../build/tools/get-project-sta
 const { registerPrompts } = await import("../build/prompts.js");
 const { updateTaskHandler, updateTaskSchema } = await import("../build/tools/update-task.js");
 const { completeTaskHandler, completeTaskSchema } = await import("../build/tools/complete-task.js");
+const { getContextHandler } = await import("../build/tools/get-context.js");
+const { logDecisionHandler } = await import("../build/tools/log-decision.js");
+const { logDiscoveryHandler } = await import("../build/tools/log-discovery.js");
 
 // ─── Setup ──────────────────────────────────────────────────────────
 
@@ -875,6 +878,190 @@ section("MCP Prompts — registration");
       assert(e.message.includes("already registered"), `prompt '${name}' was registered`);
     }
   }
+}
+
+// ─── Context & Knowledge Tools ──────────────────────────────────────
+
+// --- log_decision ---
+{
+  console.log("\n--- Context Tools — log_decision ---\n");
+
+  const handler = logDecisionHandler(vault, config);
+  const res = await handler({
+    title: "Use JWT over session tokens",
+    context: "We need stateless auth for our microservices architecture. Sessions require sticky sessions or shared store.",
+    decision: "Use JWT with RS256 signing for service-to-service auth. Short-lived access tokens (15m) with refresh tokens.",
+    alternatives: [
+      "Session tokens with Redis store — rejected due to additional infrastructure",
+      "API keys — rejected due to lack of expiry and rotation support",
+    ],
+    consequences: [
+      "Positive: Stateless, no shared session store needed",
+      "Negative: Token revocation requires a deny-list or short expiry",
+    ],
+    status: "accepted",
+    tags: ["auth", "architecture"],
+    source: "agent-claude-1",
+  });
+
+  const data = JSON.parse(res.content[0].text);
+  assert(data.success === true, "log_decision returns success");
+  assert(data.decision.title === "Use JWT over session tokens", "log_decision captures title");
+  assert(data.decision.status === "accepted", "log_decision captures status");
+  assert(data.decision.path.startsWith("Decisions/"), "log_decision writes to Decisions/ folder");
+  assert(data.decision.path.endsWith(".md"), "log_decision creates .md file");
+  assert(!res.isError, "log_decision is not an error");
+
+  // Read back and verify content
+  const raw = await vault.readNote(data.decision.path);
+  const parsed = parseNote(raw);
+  assert(parsed.frontmatter.title === "Use JWT over session tokens", "decision frontmatter has title");
+  assert(parsed.frontmatter.status === "accepted", "decision frontmatter has status");
+  assert(parsed.frontmatter.source === "agent-claude-1", "decision frontmatter has source");
+  assert(Array.isArray(parsed.frontmatter.tags), "decision frontmatter has tags");
+  assert(parsed.content.includes("## Context"), "decision body has Context section");
+  assert(parsed.content.includes("## Decision"), "decision body has Decision section");
+  assert(parsed.content.includes("## Alternatives Considered"), "decision body has Alternatives section");
+  assert(parsed.content.includes("## Consequences"), "decision body has Consequences section");
+  assert(parsed.content.includes("Session tokens with Redis"), "decision body has alternative content");
+}
+
+// --- log_discovery ---
+{
+  console.log("\n--- Context Tools — log_discovery ---\n");
+
+  const handler = logDiscoveryHandler(vault, config);
+  const res = await handler({
+    title: "macOS tmp is a symlink to private tmp",
+    discovery: "/tmp on macOS is a symlink to /private/tmp. Path comparisons using realpathSync will resolve through this symlink, causing path mismatch errors if the vault path is /tmp/...",
+    context: "Discovered while running integration tests on macOS. Tests passed on Linux but failed on macOS.",
+    impact: "high",
+    recommendation: "Always use realpathSync on the vault path during config loading to resolve symlinks before any path comparisons.",
+    category: "gotcha",
+    tags: ["macos", "filesystem", "testing"],
+    related_files: ["src/config.ts", "src/vault.ts"],
+    source: "agent-claude-1",
+  });
+
+  const data = JSON.parse(res.content[0].text);
+  assert(data.success === true, "log_discovery returns success");
+  assert(data.discovery.title === "macOS tmp is a symlink to private tmp", "log_discovery captures title");
+  assert(data.discovery.impact === "high", "log_discovery captures impact");
+  assert(data.discovery.category === "gotcha", "log_discovery captures category");
+  assert(data.discovery.path.startsWith("Discoveries/"), "log_discovery writes to Discoveries/ folder");
+  assert(!res.isError, "log_discovery is not an error");
+
+  // Read back and verify content
+  const raw = await vault.readNote(data.discovery.path);
+  const parsed = parseNote(raw);
+  assert(parsed.frontmatter.title === "macOS tmp is a symlink to private tmp", "discovery frontmatter has title");
+  assert(parsed.frontmatter.impact === "high", "discovery frontmatter has impact");
+  assert(parsed.frontmatter.category === "gotcha", "discovery frontmatter has category");
+  assert(parsed.content.includes("## Discovery"), "discovery body has Discovery section");
+  assert(parsed.content.includes("## Context"), "discovery body has Context section");
+  assert(parsed.content.includes("## Recommendation"), "discovery body has Recommendation section");
+  assert(parsed.content.includes("## Related Files"), "discovery body has Related Files section");
+  assert(parsed.content.includes("src/config.ts"), "discovery body lists related files");
+}
+
+// --- get_context ---
+{
+  console.log("\n--- Context Tools — get_context ---\n");
+
+  const handler = getContextHandler(vault, config);
+
+  // First call — should include the decisions and discoveries we just created
+  const res = await handler({ hours: 48 });
+  const data = JSON.parse(res.content[0].text);
+
+  assert(data.generated_at !== undefined, "get_context has generated_at timestamp");
+  assert(data.window_hours === 48, "get_context respects hours parameter");
+  assert(typeof data.summary === "string", "get_context has a summary string");
+  assert(!res.isError, "get_context is not an error");
+
+  // Should find our decisions and discoveries
+  assert(data.recent_decisions !== undefined, "get_context finds recent decisions");
+  assert(data.recent_decisions.length >= 1, "get_context found at least 1 decision");
+  assert(data.recent_decisions[0].title === "Use JWT over session tokens", "get_context decision has correct title");
+
+  assert(data.recent_discoveries !== undefined, "get_context finds recent discoveries");
+  assert(data.recent_discoveries.length >= 1, "get_context found at least 1 discovery");
+  assert(data.recent_discoveries[0].title === "macOS tmp is a symlink to private tmp", "get_context discovery has correct title");
+
+  // Should also include tasks from earlier tests (if any still exist in tasks folder)
+  // The summary should be a non-empty string
+  assert(data.summary.length > 0, "get_context summary is non-empty");
+}
+
+// --- get_context with project filter ---
+{
+  console.log("\n--- Context Tools — get_context with project filter ---\n");
+
+  const handler = getContextHandler(vault, config);
+  const res = await handler({ project_id: "nonexistent-project", hours: 48 });
+  const data = JSON.parse(res.content[0].text);
+
+  assert(data.focused_project === "nonexistent-project", "get_context respects project_id filter");
+  assert(!res.isError, "get_context with filter is not an error");
+}
+
+// --- log_decision with project link ---
+{
+  console.log("\n--- Context Tools — log_decision with project link ---\n");
+
+  const handler = logDecisionHandler(vault, config);
+  const res = await handler({
+    title: "Use Zod v4 for validation",
+    context: "Need runtime validation for MCP tool inputs.",
+    decision: "Use Zod v4. It has better TypeScript inference and smaller bundle.",
+    status: "accepted",
+    project: "proj-2026-03-09-abc123",
+    task_id: "task-2026-03-09-def456",
+  });
+
+  const data = JSON.parse(res.content[0].text);
+  assert(data.success === true, "log_decision with project returns success");
+
+  const raw = await vault.readNote(data.decision.path);
+  const parsed = parseNote(raw);
+  assert(parsed.frontmatter.project === "proj-2026-03-09-abc123", "decision links to project");
+  assert(parsed.frontmatter.task_id === "task-2026-03-09-def456", "decision links to task");
+}
+
+// --- log_discovery minimal fields ---
+{
+  console.log("\n--- Context Tools — log_discovery minimal ---\n");
+
+  const handler = logDiscoveryHandler(vault, config);
+  const res = await handler({
+    title: "zod record needs two args in v4",
+    discovery: "z.record() in Zod v4 requires two arguments: z.record(z.string(), z.unknown()).",
+  });
+
+  const data = JSON.parse(res.content[0].text);
+  assert(data.success === true, "log_discovery minimal returns success");
+  assert(data.discovery.category === "gotcha", "log_discovery defaults to gotcha category");
+  assert(data.discovery.impact === "medium", "log_discovery defaults to medium impact");
+}
+
+// --- Config — DECISIONS_FOLDER and DISCOVERIES_FOLDER env vars ---
+{
+  console.log("\n--- Context Config — folder env vars ---\n");
+
+  const origDecisions = process.env.DECISIONS_FOLDER;
+  const origDiscoveries = process.env.DISCOVERIES_FOLDER;
+
+  process.env.DECISIONS_FOLDER = "ADRs";
+  process.env.DISCOVERIES_FOLDER = "TIL";
+  const customConfig = loadConfig();
+  assert(customConfig.decisionsFolder === "ADRs", "DECISIONS_FOLDER env var is respected");
+  assert(customConfig.discoveriesFolder === "TIL", "DISCOVERIES_FOLDER env var is respected");
+
+  // Restore
+  if (origDecisions) process.env.DECISIONS_FOLDER = origDecisions;
+  else delete process.env.DECISIONS_FOLDER;
+  if (origDiscoveries) process.env.DISCOVERIES_FOLDER = origDiscoveries;
+  else delete process.env.DISCOVERIES_FOLDER;
 }
 
 // ─── Cleanup & Report ───────────────────────────────────────────────

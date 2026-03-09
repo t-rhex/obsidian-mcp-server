@@ -21,6 +21,8 @@
  *   GIT_TIMEOUT_MS             (optional) — Timeout for git operations (default: 30000)
  *   GIT_PULL_REBASE            (optional) — Use --rebase on pull (default: true)
  *   TASKS_FOLDER               (optional) — Subfolder for task notes (default: "Tasks")
+ *   DECISIONS_FOLDER           (optional) — Subfolder for decision records (default: "Decisions")
+ *   DISCOVERIES_FOLDER         (optional) — Subfolder for discovery notes (default: "Discoveries")
  */
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -50,6 +52,9 @@ import { updateTaskSchema, updateTaskHandler } from "./tools/update-task.js";
 import { completeTaskSchema, completeTaskHandler } from "./tools/complete-task.js";
 import { createProjectSchema, createProjectHandler } from "./tools/create-project.js";
 import { getProjectStatusSchema, getProjectStatusHandler } from "./tools/get-project-status.js";
+import { getContextSchema, getContextHandler } from "./tools/get-context.js";
+import { logDecisionSchema, logDecisionHandler } from "./tools/log-decision.js";
+import { logDiscoverySchema, logDiscoveryHandler } from "./tools/log-discovery.js";
 import { registerPrompts } from "./prompts.js";
 
 // ─── Bootstrap ──────────────────────────────────────────────────────
@@ -278,6 +283,36 @@ async function main() {
     "Use list_tasks(type: 'project') to find project IDs.",
     getProjectStatusSchema,
     getProjectStatusHandler(vault, config),
+  );
+
+  // ─── Context & Knowledge Tools ────────────────────────────────
+
+  server.tool(
+    "get_context",
+    "Get a structured briefing of the vault's current state. " +
+    "Returns active projects, in-progress work, pending tasks, blockers, failures, " +
+    "recent decisions, recent discoveries, and pinned notes. " +
+    "Call this FIRST in any new session to understand what's going on.",
+    getContextSchema,
+    getContextHandler(vault, config),
+  );
+
+  server.tool(
+    "log_decision",
+    "Log an architectural or design decision as a structured record. " +
+    "Captures context, rationale, alternatives considered, and consequences. " +
+    "Future agents can find these via get_context to understand WHY things were done.",
+    logDecisionSchema,
+    logDecisionHandler(vault, config),
+  );
+
+  server.tool(
+    "log_discovery",
+    "Log a discovery, gotcha, or TIL (Today I Learned) as a structured note. " +
+    "Captures what was found, its impact, and recommendations. " +
+    "Prevents future agents from re-discovering the same things.",
+    logDiscoverySchema,
+    logDiscoveryHandler(vault, config),
   );
 
   // ─── Register Prompts ────────────────────────────────────────────

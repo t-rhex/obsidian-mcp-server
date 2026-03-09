@@ -12,6 +12,7 @@ An MCP (Model Context Protocol) server that gives AI assistants direct filesyste
 - **Daily notes** — get, create, or append by date (`today`, `yesterday`, `2025-03-08`, etc.)
 - **Git sync (optional)** — commit, pull, push, and full sync via git CLI. Auto-sync after every write pushes to remote automatically. Git is entirely optional — the server works perfectly without it.
 - **Task orchestration** — create, claim, update, and complete tasks with structured frontmatter. Turn your vault into an agent task queue with dependency tracking, scope isolation, and auto-generated dashboards.
+- **Context persistence** — log decisions and discoveries as structured notes so future sessions don't lose context. `get_context` gives any new session a full briefing of the vault's current state.
 
 ## Installation
 
@@ -313,6 +314,48 @@ Returns:
 - Overdue tasks: tasks past their `timeout_minutes`
 - Blockers: which blocked tasks are waiting on what
 
+### `get_context`
+
+Get a structured briefing of the vault's current state. Call this **first** in any new session.
+
+```
+project_id: "proj-..."           # focus on a specific project (optional)
+hours: 48                         # how far back to look (default: 48)
+include_completed: true           # include recent completions (default: true)
+```
+
+Returns: active projects with progress, in-progress work, pending tasks ready to claim, blockers, failures, overdue tasks, recent decisions, recent discoveries, and pinned context notes (`pinned: true` in frontmatter).
+
+### `log_decision`
+
+Log an architectural or design decision as a structured record in the `Decisions/` folder.
+
+```
+title: "Use JWT over session tokens"
+context: "Need stateless auth for microservices."
+decision: "JWT with RS256 signing, 15-minute access tokens, refresh token rotation."
+alternatives: ["Session tokens with Redis", "API keys"]
+consequences: ["Positive: Stateless", "Negative: Revocation requires deny-list"]
+status: "accepted"               # "proposed" | "accepted" | "deprecated" | "superseded"
+tags: ["auth", "architecture"]
+project: "proj-..."              # optional link to project
+task_id: "task-..."              # optional link to task
+```
+
+### `log_discovery`
+
+Log a gotcha, TIL, or finding as a structured note in the `Discoveries/` folder.
+
+```
+title: "gray-matter crashes on undefined values"
+discovery: "js-yaml throws when serializing objects with undefined. Must strip before serialize."
+impact: "high"                   # "critical" | "high" | "medium" | "low"
+recommendation: "Filter frontmatter through Object.entries().filter() first."
+category: "bug"                  # "bug" | "gotcha" | "pattern" | "tool" | "config" | "performance" | "security" | "other"
+tags: ["yaml", "serialization"]
+related_files: ["src/frontmatter.ts"]
+```
+
 ## Agent Workflow
 
 The task tools are designed for AI agent orchestration. Here's the typical workflow:
@@ -459,6 +502,8 @@ All configuration is via environment variables.
 | `SEARCH_TIMEOUT_MS` | `30000` | Search timeout in milliseconds |
 | `NOTE_EXTENSIONS` | `.md,.markdown` | File extensions treated as notes (comma-separated) |
 | `TASKS_FOLDER` | `Tasks` | Subfolder for task notes (relative to vault root) |
+| `DECISIONS_FOLDER` | `Decisions` | Subfolder for decision records (relative to vault root) |
+| `DISCOVERIES_FOLDER` | `Discoveries` | Subfolder for discovery/TIL notes (relative to vault root) |
 
 ### Optional — Git Sync
 
@@ -570,7 +615,10 @@ src/
     ├── update-task.ts    # Update status, append to agent log
     ├── complete-task.ts  # Mark done, link deliverables, unblock dependents
     ├── create-project.ts # Create project with sub-tasks in one call
-    └── get-project-status.ts  # Rollup progress, agents, blockers
+    ├── get-project-status.ts  # Rollup progress, agents, blockers
+    ├── get-context.ts    # Session briefing from vault state
+    ├── log-decision.ts   # Structured decision records
+    └── log-discovery.ts  # Structured discovery/TIL notes
 ```
 
 ## License
