@@ -49,6 +49,9 @@ export const createTaskSchema = {
   source: z.string().optional().default("manual").describe(
     "Where this task came from (e.g. 'manual', 'github-issue-42', 'agent-spawned').",
   ),
+  project: z.string().optional().describe(
+    "Project ID to attach this task to (e.g. 'proj-2026-03-09-abc123'). Task will appear in get_project_status rollups.",
+  ),
   parent_task: z.string().optional().describe(
     "ID of the parent task, if this is a sub-task.",
   ),
@@ -76,6 +79,7 @@ export const createTaskHandler = (vault: Vault, config: Config) =>
       scope?: string[];
       acceptance_criteria?: string[];
       source?: string;
+      project?: string;
       parent_task?: string;
       timeout_minutes?: number;
       tags?: string[];
@@ -107,7 +111,8 @@ export const createTaskHandler = (vault: Vault, config: Config) =>
         context_notes: input.context_notes,
         scope: input.scope,
         source: input.source,
-        parent_task: input.parent_task,
+        project: input.project,
+        parent_task: input.parent_task ?? input.project,
         timeout_minutes: input.timeout_minutes,
         tags: input.tags,
         assignee: input.assignee,

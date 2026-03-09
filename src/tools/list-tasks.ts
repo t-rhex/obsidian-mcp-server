@@ -47,6 +47,9 @@ export const listTasksSchema = {
   exclude_projects: z.boolean().optional().default(false).describe(
     "Exclude project-type tasks from results (show only actionable sub-tasks). Default: false.",
   ),
+  tags: z.array(z.string()).optional().describe(
+    "Filter by tags. Returns tasks that have ALL specified tags.",
+  ),
 };
 
 export const listTasksHandler = (vault: Vault, config: Config) =>
@@ -61,6 +64,7 @@ export const listTasksHandler = (vault: Vault, config: Config) =>
       include_completed?: boolean;
       project?: string;
       exclude_projects?: boolean;
+      tags?: string[];
     }) => {
       const tasksFolder = config.tasksFolder;
       const allTasks = await scanTasks(vault, tasksFolder);
@@ -99,6 +103,13 @@ export const listTasksHandler = (vault: Vault, config: Config) =>
 
       if (input.exclude_projects) {
         filtered = filtered.filter((t) => t.task.type !== "project");
+      }
+
+      if (input.tags && input.tags.length > 0) {
+        const requiredTags = input.tags;
+        filtered = filtered.filter((t) =>
+          requiredTags.every((tag) => t.task.tags.includes(tag)),
+        );
       }
 
       // Sort: by priority (critical first), then by created date (oldest first)

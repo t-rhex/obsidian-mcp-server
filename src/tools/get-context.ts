@@ -147,26 +147,78 @@ export const getContextHandler = (vault: Vault, config: Config) =>
           path: t.path,
         }));
 
-      // ── 4. Pending work (ready to claim) ───────────────────────────
-      const pendingWork = relevantTasks
+      // ── 4. Pending work (ready to claim), grouped by project ───────
+      const pendingRaw = relevantTasks
         .filter((t) => t.task.status === "pending" && t.task.type !== "project")
         .sort((a, b) => (PRIORITY_ORDER[a.task.priority] ?? 99) - (PRIORITY_ORDER[b.task.priority] ?? 99))
-        .slice(0, 10)
-        .map((t) => ({
-          id: t.task.id,
-          title: t.task.title,
-          priority: t.task.priority,
-          type: t.task.type,
-          project: t.task.project || null,
-        }));
+        .slice(0, 15);
+
+      // Build project title lookup
+      const projectTitles = new Map<string, string>();
+      for (const p of allTasks) {
+        if (p.task.type === "project") {
+          projectTitles.set(p.task.id, p.task.title);
+        }
+      }
+
+      // Group by project
+      const pendingByProject = new Map<string, typeof pendingRaw>();
+      for (const t of pendingRaw) {
+        const key = t.task.project || "_standalone";
+        if (!pendingByProject.has(key)) pendingByProject.set(key, []);
+        pendingByProject.get(key)!.push(t);
+      }
+
+      const pendingWork: Array<{
+        project?: string;
+        project_title?: string;
+        tasks: Array<{ id: string; title: string; priority: string; type: string }>;
+      }> = [];
+
+      // Standalone tasks first
+      const standalone = pendingByProject.get("_standalone");
+      if (standalone) {
+        pendingWork.push({
+          tasks: standalone.map((t) => ({
+            id: t.task.id,
+            title: t.task.title,
+            priority: t.task.priority,
+            type: t.task.type,
+          })),
+        });
+      }
+
+      // Then grouped by project
+      for (const [projId, tasks] of pendingByProject) {
+        if (projId === "_standalone") continue;
+        pendingWork.push({
+          project: projId,
+          project_title: projectTitles.get(projId) ?? projId,
+          tasks: tasks.map((t) => ({
+            id: t.task.id,
+            title: t.task.title,
+            priority: t.task.priority,
+            type: t.task.type,
+          })),
+        });
+      }
 
       // ── 5. Blockers and failures ───────────────────────────────────
+      // Build task title lookup for resolving IDs
+      const taskTitles = new Map<string, string>();
+      for (const t of allTasks) {
+        taskTitles.set(t.task.id, t.task.title);
+      }
+
       const blockers = relevantTasks
         .filter((t) => t.task.status === "blocked")
         .map((t) => ({
           id: t.task.id,
           title: t.task.title,
-          waiting_on: t.task.depends_on,
+          waiting_on: t.task.depends_on.map((depId) => ({
+            id: depId,
+            title: taskTitles.get(depId) ?? depId,
+          })),
           project: t.task.project || null,
         }));
 
@@ -224,19 +276,22 @@ export const getContextHandler = (vault: Vault, config: Config) =>
         }
       }
 
-      // ── 8. Recent decisions ────────────────────────────────────────
+      // ── 8. Recent decisions (with inline summary) ──────────────────
       const recentDecisions = await scanFolder(vault, config.decisionsFolder, sinceISO);
       const decisions = recentDecisions.slice(0, 10).map((d) => ({
         title: String(d.frontmatter.title ?? d.path.split("/").pop()?.replace(/\.md$/, "") ?? ""),
+        decision: d.frontmatter.decision ? String(d.frontmatter.decision) : undefined,
         status: String(d.frontmatter.status ?? "accepted"),
         tags: Array.isArray(d.frontmatter.tags) ? d.frontmatter.tags : [],
         path: d.path,
       }));
 
-      // ── 9. Recent discoveries ──────────────────────────────────────
+      // ── 9. Recent discoveries (with inline summary) ────────────────
       const recentDiscoveries = await scanFolder(vault, config.discoveriesFolder, sinceISO);
       const discoveries = recentDiscoveries.slice(0, 10).map((d) => ({
         title: String(d.frontmatter.title ?? d.path.split("/").pop()?.replace(/\.md$/, "") ?? ""),
+        discovery: d.frontmatter.discovery ? String(d.frontmatter.discovery) : undefined,
+        recommendation: d.frontmatter.recommendation ? String(d.frontmatter.recommendation) : undefined,
         impact: String(d.frontmatter.impact ?? "medium"),
         tags: Array.isArray(d.frontmatter.tags) ? d.frontmatter.tags : [],
         path: d.path,
@@ -327,7 +382,8 @@ export const getContextHandler = (vault: Vault, config: Config) =>
       const parts: string[] = [];
       if (activeProjects.length > 0) parts.push(`${activeProjects.length} active project(s)`);
       if (activeWork.length > 0) parts.push(`${activeWork.length} task(s) in progress`);
-      if (pendingWork.length > 0) parts.push(`${pendingWork.length} task(s) ready to claim`);
+      const pendingCount = pendingWork.reduce((sum, g) => sum + g.tasks.length, 0);
+      if (pendingCount > 0) parts.push(`${pendingCount} task(s) ready to claim`);
       if (blockers.length > 0) parts.push(`${blockers.length} blocked`);
       if (failures.length > 0) parts.push(`${failures.length} failed`);
       if (overdue.length > 0) parts.push(`${overdue.length} overdue`);
