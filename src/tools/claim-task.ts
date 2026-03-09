@@ -19,7 +19,7 @@ import { parseNote, serializeNote } from "../frontmatter.js";
 import { safeToolHandler } from "../errors.js";
 import {
   parseTaskFrontmatter,
-  todayDate,
+  nowISO,
 } from "../task-schema.js";
 import { refreshDashboard, scanTasks } from "../task-dashboard.js";
 
@@ -113,28 +113,32 @@ export const claimTaskHandler = (vault: Vault, config: Config) =>
       const raw = await vault.readNote(entry.path);
       const parsed = parseNote(raw);
 
+      const now = nowISO();
       const updatedFm = {
         ...parsed.frontmatter,
         status: "claimed",
         assignee: input.assignee,
-        updated: todayDate(),
+        claimed_at: now,
+        updated: now,
       };
 
       const newContent = serializeNote(updatedFm, parsed.content);
       await vault.writeNote(entry.path, newContent, { overwrite: true });
 
-      // Refresh dashboard
-      await refreshDashboard(vault, tasksFolder);
+      // Refresh dashboard (re-scan since we mutated a task)
+      const dashOk = await refreshDashboard(vault, tasksFolder);
 
       return {
         content: [{
           type: "text" as const,
           text: JSON.stringify({
             success: true,
+            dashboard_refreshed: dashOk,
             task_id: task.id,
             title: task.title,
             assignee: input.assignee,
             status: "claimed",
+            claimed_at: updatedFm.claimed_at,
             path: entry.path,
             context_notes: task.context_notes,
             scope: task.scope,

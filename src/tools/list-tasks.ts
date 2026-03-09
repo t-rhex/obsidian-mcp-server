@@ -102,18 +102,36 @@ export const listTasksHandler = (vault: Vault, config: Config) =>
           text: JSON.stringify({
             total: filtered.length,
             returned: limited.length,
-            tasks: limited.map((entry) => ({
-              id: entry.task.id,
-              title: entry.task.title,
-              status: entry.task.status,
-              priority: entry.task.priority,
-              type: entry.task.type,
-              assignee: entry.task.assignee || null,
-              created: entry.task.created,
-              due: entry.task.due || null,
-              depends_on: entry.task.depends_on,
-              path: entry.path,
-            })),
+            tasks: limited.map((entry) => {
+              // Check if a claimed/in_progress task has exceeded its timeout
+              let is_overdue = false;
+              if (
+                entry.task.claimed_at &&
+                (entry.task.status === "claimed" || entry.task.status === "in_progress") &&
+                entry.task.timeout_minutes > 0
+              ) {
+                const claimedAt = new Date(entry.task.claimed_at).getTime();
+                const elapsed = (Date.now() - claimedAt) / 60_000;
+                is_overdue = elapsed > entry.task.timeout_minutes;
+              }
+
+              return {
+                id: entry.task.id,
+                title: entry.task.title,
+                status: entry.task.status,
+                priority: entry.task.priority,
+                type: entry.task.type,
+                assignee: entry.task.assignee || null,
+                created: entry.task.created,
+                claimed_at: entry.task.claimed_at || null,
+                due: entry.task.due || null,
+                depends_on: entry.task.depends_on,
+                timeout_minutes: entry.task.timeout_minutes,
+                is_overdue,
+                retry_count: entry.task.retry_count,
+                path: entry.path,
+              };
+            }),
           }, null, 2),
         }],
       };

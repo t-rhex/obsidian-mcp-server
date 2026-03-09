@@ -213,7 +213,7 @@ type: "code"                     # "code" | "research" | "writing" | "maintenanc
 due: "2026-03-15"               # optional deadline
 depends_on: ["task-abc-123"]     # task IDs that must complete first
 context_notes: ["Projects/api"]  # vault notes with relevant context
-scope: ["src/auth.ts"]           # files this task can modify
+scope: ["src/auth.ts"]           # advisory: files this task intends to modify
 acceptance_criteria: ["Tests pass", "Docs written"]
 source: "github-issue-42"       # where this task came from
 timeout_minutes: 120             # max time before agent is considered stuck
@@ -257,10 +257,12 @@ priority: "critical"             # change priority if needed
 
 Valid status transitions are enforced:
 - `pending` → `claimed`, `blocked`, `cancelled`
-- `claimed` → `in_progress`, `pending`, `blocked`, `cancelled`
+- `claimed` → `in_progress`, `pending` (unclaim), `blocked`, `cancelled`
 - `in_progress` → `completed`, `failed`, `blocked`, `pending`, `cancelled`
 - `blocked` → `pending`, `cancelled`
-- `completed`, `failed`, `cancelled` → (terminal, no transitions)
+- `completed` → `pending` (reopen)
+- `failed` → `pending` (retry — clears assignee, increments `retry_count`)
+- `cancelled` → `pending` (reactivate)
 
 ### `complete_task`
 
@@ -335,6 +337,22 @@ Build JWT-based authentication for the API.
 ```
 
 A `DASHBOARD.md` is auto-generated in the tasks folder after every mutation, showing summary counts, active tasks, pending queue, blocked tasks, and recent completions.
+
+### Robustness Features
+
+- **Retry failed tasks** — failed/cancelled tasks can be retried via `update_task(status: "pending")`. Assignee is cleared, `retry_count` incremented, and the task re-enters the queue.
+- **Unclaim stuck tasks** — if an agent crashes, a claimed task can be unclaimed via `update_task(status: "pending")` to make it available again.
+- **Timeout detection** — `list_tasks` returns `is_overdue: true` for tasks that have exceeded their `timeout_minutes` since `claimed_at`.
+- **Dependency validation** — `create_task` warns if `depends_on` references nonexistent task IDs.
+- **Dashboard health** — all mutation responses include `dashboard_refreshed: true/false` so callers know if the dashboard is current.
+- **ISO timestamps** — `created`, `updated`, `completed_at`, and `claimed_at` use full ISO 8601 datetimes for precise ordering.
+- **Scope is advisory** — `scope[]` tells agents which files a task intends to modify, but is not enforced by the server. Agents should respect it to avoid conflicts.
+
+### Known Limitations
+
+- **No true atomic claims** — the claim operation is read-check-write without file locking. This is safe for a single MCP server process (Node.js event loop), but if multiple server processes share the same vault directory, a race condition is possible. For multi-process setups, use external coordination.
+- **Scope is not enforced** — the server does not block writes outside a task's `scope[]`. Enforcement would require middleware in the vault write path.
+- **No automatic timeout recovery** — `is_overdue` is reported in `list_tasks` output, but timed-out tasks are not automatically released. A dispatcher (Phase 2) will handle this.
 
 ## Configuration
 

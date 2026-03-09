@@ -12,7 +12,7 @@ import {
   TaskStatus,
 } from "./task-schema.js";
 
-interface TaskEntry {
+export interface TaskEntry {
   path: string;
   task: TaskFrontmatter;
 }
@@ -192,22 +192,27 @@ export function generateDashboard(tasks: TaskEntry[]): string {
 /**
  * Regenerate DASHBOARD.md in the tasks folder.
  * This is called after every task mutation.
+ * Returns true if dashboard was refreshed successfully, false otherwise.
+ * Accepts optional pre-scanned tasks to avoid redundant filesystem reads.
  */
 export async function refreshDashboard(
   vault: Vault,
   tasksFolder: string,
-): Promise<void> {
+  preScannedTasks?: TaskEntry[],
+): Promise<boolean> {
   try {
-    const tasks = await scanTasks(vault, tasksFolder);
+    const tasks = preScannedTasks ?? await scanTasks(vault, tasksFolder);
     const content = generateDashboard(tasks);
     const dashboardPath = `${tasksFolder}/DASHBOARD.md`;
 
     await vault.writeNote(dashboardPath, content, { overwrite: true });
+    return true;
   } catch (err) {
     // Dashboard generation is best-effort — don't fail the tool call
     console.error(
       "Dashboard refresh failed:",
       err instanceof Error ? err.message : err,
     );
+    return false;
   }
 }

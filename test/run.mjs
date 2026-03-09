@@ -591,6 +591,97 @@ section("Task Dashboard");
   assert(dashboard.includes("## Recently Completed"), "dashboard has completed section");
 }
 
+section("Task Tools — retry failed task (#15)");
+{
+  // Second task is failed from earlier test. Retry it.
+  const updateHandler = updateTaskHandler(vault, config);
+  const retryResult = await updateHandler({ task_id: secondTaskId, status: "pending" });
+  assert(!retryResult.isError, "retry failed task succeeded");
+  const retryData = JSON.parse(retryResult.content[0].text);
+  assert(retryData.changes.some((c) => c.includes("failed -> pending")), "retry transition logged");
+
+  // Verify retry_count incremented and assignee cleared
+  const tasks = await scanTasks(vault, "Tasks");
+  const retried = tasks.find((t) => t.task.id === secondTaskId);
+  assert(retried.task.status === "pending", "retried task is pending");
+  assert(retried.task.assignee === "", "retried task assignee cleared");
+  assert(retried.task.retry_count === 1, "retry_count incremented to 1");
+}
+
+section("Task Tools — dashboard_refreshed in responses");
+{
+  const handler = listTasksHandler(vault, config);
+  const result = await handler({ status: "all", include_completed: true });
+  const data = JSON.parse(result.content[0].text);
+  // list_tasks doesn't refresh dashboard, but create/claim/update/complete do
+  // Verify the field exists in create responses
+  const createHandler = createTaskHandler(vault, config);
+  const createResult = await createHandler({
+    title: "Dashboard test task",
+    description: "Testing dashboard_refreshed field.",
+    source: "test",
+  });
+  const createData = JSON.parse(createResult.content[0].text);
+  assert(createData.dashboard_refreshed === true, "dashboard_refreshed field in create response");
+}
+
+section("Task Tools — ISO datetime timestamps");
+{
+  const tasks = await scanTasks(vault, "Tasks");
+  const anyTask = tasks[0];
+  // created and updated should be ISO format (contain T or at least more than YYYY-MM-DD)
+  assert(anyTask.task.created.length > 10, "created uses ISO datetime (not just date)");
+  assert(anyTask.task.updated.length > 10, "updated uses ISO datetime (not just date)");
+}
+
+section("Task Tools — is_overdue in list_tasks");
+{
+  const handler = listTasksHandler(vault, config);
+  const result = await handler({ status: "all", include_completed: true });
+  const data = JSON.parse(result.content[0].text);
+  // All tasks should have is_overdue field
+  assert(data.tasks.every((t) => typeof t.is_overdue === "boolean"), "is_overdue field present");
+  assert(data.tasks.every((t) => typeof t.retry_count === "number"), "retry_count field present");
+}
+
+section("Task Tools — create_task with depends_on warns on missing IDs (#19)");
+{
+  const handler = createTaskHandler(vault, config);
+  const result = await handler({
+    title: "Task with bad dep",
+    description: "Depends on nonexistent task",
+    depends_on: ["task-nonexistent-fake-id"],
+    source: "test",
+  });
+  const data = JSON.parse(result.content[0].text);
+  assert(data.success === true, "task created despite bad dep");
+  assert(data.warnings && data.warnings.length > 0, "warning about missing depends_on ID");
+}
+
+section("Task Tools — create_task with assignee + depends_on (#22)");
+{
+  const handler = createTaskHandler(vault, config);
+  const result = await handler({
+    title: "Pre-assigned with deps",
+    description: "Has both assignee and depends_on",
+    assignee: "agent-1",
+    depends_on: [firstTaskId],
+    source: "test",
+  });
+  const data = JSON.parse(result.content[0].text);
+  assert(data.task.status === "blocked", "depends_on takes precedence over assignee — status is blocked");
+}
+
+section("Task Tools — claimed_at set on claim (#17)");
+{
+  // Claim the retried second task
+  const claimHandler = claimTaskHandler(vault, config);
+  const result = await claimHandler({ task_id: secondTaskId, assignee: "test-agent" });
+  const data = JSON.parse(result.content[0].text);
+  assert(data.claimed_at, "claimed_at returned in claim response");
+  assert(data.claimed_at.includes("T"), "claimed_at is ISO datetime");
+}
+
 section("Task Config — TASKS_FOLDER env var");
 {
   process.env.TASKS_FOLDER = "MyTasks";

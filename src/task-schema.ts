@@ -31,6 +31,8 @@ export interface TaskFrontmatter {
   updated: string;
   due?: string;
   completed_at?: string;
+  claimed_at?: string;
+  retry_count: number;
   source: string;
   parent_task?: string;
   depends_on: string[];
@@ -85,7 +87,7 @@ export function todayDate(): string {
 export function buildTaskFrontmatter(
   overrides: Partial<TaskFrontmatter> & { title: string },
 ): TaskFrontmatter {
-  const now = todayDate();
+  const isoNow = nowISO();
   return {
     id: overrides.id ?? generateTaskId(),
     title: overrides.title,
@@ -93,9 +95,11 @@ export function buildTaskFrontmatter(
     priority: overrides.priority ?? "medium",
     type: overrides.type ?? "other",
     assignee: overrides.assignee ?? "",
-    created: overrides.created ?? now,
-    updated: overrides.updated ?? now,
+    created: overrides.created ?? isoNow,
+    updated: overrides.updated ?? isoNow,
     due: overrides.due,
+    claimed_at: overrides.claimed_at,
+    retry_count: overrides.retry_count ?? 0,
     source: overrides.source ?? "manual",
     parent_task: overrides.parent_task,
     depends_on: overrides.depends_on ?? [],
@@ -134,6 +138,8 @@ export function parseTaskFrontmatter(
     updated: String(fm.updated ?? ""),
     due: fm.due ? String(fm.due) : undefined,
     completed_at: fm.completed_at ? String(fm.completed_at) : undefined,
+    claimed_at: fm.claimed_at ? String(fm.claimed_at) : undefined,
+    retry_count: typeof fm.retry_count === "number" ? fm.retry_count : 0,
     source: String(fm.source ?? "manual"),
     parent_task: fm.parent_task ? String(fm.parent_task) : undefined,
     depends_on: Array.isArray(fm.depends_on)
@@ -200,4 +206,129 @@ export function slugify(title: string): string {
 export function buildTaskPath(tasksFolder: string, id: string, title: string): string {
   const slug = slugify(title);
   return `${tasksFolder}/${id}-${slug}.md`;
+}
+
+/**
+ * Get current ISO datetime string (e.g. "2026-03-09T14:30:00Z").
+ * Used for precise timestamps in mutations (updated, completed_at, claimed_at).
+ */
+export function nowISO(): string {
+  return new Date().toISOString();
+}
+
+// ─── Section Editing Helpers ────────────────────────────────────────
+
+/**
+ * Case-insensitive, whitespace-tolerant heading matcher.
+ * Matches "## Agent Log", "## agent log", "##  Agent Log:", etc.
+ */
+function findHeading(content: string, headingName: string): { index: number; length: number } | null {
+  const regex = new RegExp(`^##\\s+${headingName}\\b.*$`, "mi");
+  const match = regex.exec(content);
+  if (!match) return null;
+  return { index: match.index, length: match[0].length };
+}
+
+/**
+ * Find the end boundary of a ## section (start of next ## heading or end of content).
+ */
+function findSectionEnd(content: string, afterHeadingIndex: number): number {
+  const remaining = content.substring(afterHeadingIndex);
+  const nextH2 = remaining.search(/^## /m);
+  return nextH2 !== -1 ? afterHeadingIndex + nextH2 : content.length;
+}
+
+/**
+ * Append a timestamped entry to the Agent Log section of a task note.
+ * If no Agent Log section exists, one is created at the end.
+ * The timestamp is added automatically — pass only the log text.
+ */
+export function appendToAgentLog(content: string, logText: string): string {
+  const timestamp = new Date().toISOString().replace("T", " ").split(".")[0];
+  const entry = `\n- **[${timestamp}]** ${logText}`;
+
+  const heading = findHeading(content, "agent\\s+log");
+
+  if (heading) {
+    const sectionEnd = findSectionEnd(content, heading.index + heading.length);
+    const isAtEnd = sectionEnd === content.length;
+
+    if (isAtEnd) {
+      return content.trimEnd() + "\n" + entry + "\n";
+    } else {
+      return (
+        content.substring(0, sectionEnd).trimEnd() +
+        "\n" + entry + "\n\n" +
+        content.substring(sectionEnd)
+      );
+    }
+  } else {
+    // No Agent Log section — create one at the end
+    return content.trimEnd() + "\n\n## Agent Log\n" + entry + "\n";
+  }
+}
+
+/**
+ * Append a pre-formatted entry (with its own timestamp/prefix) to the Agent Log.
+ * Used by complete_task which formats its own [COMPLETED]/[FAILED] entries.
+ */
+export function appendRawToAgentLog(content: string, rawEntry: string): string {
+  const heading = findHeading(content, "agent\\s+log");
+
+  if (heading) {
+    const sectionEnd = findSectionEnd(content, heading.index + heading.length);
+    const isAtEnd = sectionEnd === content.length;
+
+    if (isAtEnd) {
+      return content.trimEnd() + "\n" + rawEntry + "\n";
+    } else {
+      return (
+        content.substring(0, sectionEnd).trimEnd() +
+        "\n" + rawEntry + "\n\n" +
+        content.substring(sectionEnd)
+      );
+    }
+  } else {
+    return content.trimEnd() + "\n\n## Agent Log\n" + rawEntry + "\n";
+  }
+}
+
+/**
+ * Add deliverables to the Deliverables section.
+ * Appends to existing deliverables rather than replacing them.
+ * Creates the section before Agent Log if it doesn't exist.
+ */
+export function addDeliverables(content: string, deliverables: string[]): string {
+  const newLines = deliverables.map((d) => `- ${d}`).join("\n");
+  const heading = findHeading(content, "deliverables");
+
+  if (heading) {
+    // Append to existing section — insert before the section end
+    const sectionEnd = findSectionEnd(content, heading.index + heading.length);
+    const existingSection = content.substring(heading.index + heading.length, sectionEnd);
+    const isAtEnd = sectionEnd === content.length;
+
+    if (isAtEnd) {
+      return content.trimEnd() + "\n" + newLines + "\n";
+    } else {
+      return (
+        content.substring(0, sectionEnd).trimEnd() +
+        "\n" + newLines + "\n\n" +
+        content.substring(sectionEnd)
+      );
+    }
+  } else {
+    // Create before Agent Log if it exists, otherwise at end
+    const agentLog = findHeading(content, "agent\\s+log");
+    const section = `## Deliverables\n\n${newLines}\n`;
+
+    if (agentLog) {
+      return (
+        content.substring(0, agentLog.index) +
+        section + "\n" +
+        content.substring(agentLog.index)
+      );
+    }
+    return content.trimEnd() + "\n\n" + section;
+  }
 }

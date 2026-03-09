@@ -18,6 +18,9 @@ import { safeToolHandler } from "../errors.js";
 import {
   parseTaskFrontmatter,
   todayDate,
+  nowISO,
+  appendRawToAgentLog,
+  addDeliverables,
   TaskStatus,
 } from "../task-schema.js";
 import { refreshDashboard, scanTasks } from "../task-dashboard.js";
@@ -90,7 +93,7 @@ export const completeTaskHandler = (vault: Vault, config: Config) =>
       // Read and update the note
       const raw = await vault.readNote(entry.path);
       const parsed = parseNote(raw);
-      const now = todayDate();
+      const now = nowISO();
 
       // Update frontmatter
       const updatedFm: Record<string, unknown> = {
@@ -105,19 +108,19 @@ export const completeTaskHandler = (vault: Vault, config: Config) =>
       const timestamp = new Date().toISOString().replace("T", " ").split(".")[0];
 
       // Append completion entry to Agent Log
-      const statusEmoji = finalStatus === "completed" ? "COMPLETED" :
+      const statusLabel = finalStatus === "completed" ? "COMPLETED" :
                           finalStatus === "failed" ? "FAILED" :
                           "CANCELLED";
-      let logEntry = `\n- **[${timestamp}] [${statusEmoji}]** ${input.summary}`;
+      let logEntry = `\n- **[${timestamp}] [${statusLabel}]** ${input.summary}`;
       if (input.error_reason && finalStatus === "failed") {
         logEntry += `\n  - Error: ${input.error_reason}`;
       }
 
-      updatedContent = appendToAgentLog(updatedContent, logEntry);
+      updatedContent = appendRawToAgentLog(updatedContent, logEntry);
 
-      // Add deliverables section if provided
+      // Add deliverables section if provided (appends to existing)
       if (input.deliverables && input.deliverables.length > 0) {
-        updatedContent = addDeliverablesSection(updatedContent, input.deliverables);
+        updatedContent = addDeliverables(updatedContent, input.deliverables);
       }
 
       const newContent = serializeNote(updatedFm, updatedContent);
@@ -159,13 +162,14 @@ export const completeTaskHandler = (vault: Vault, config: Config) =>
       }
 
       // Refresh dashboard
-      await refreshDashboard(vault, tasksFolder);
+      const dashOk = await refreshDashboard(vault, tasksFolder);
 
       return {
         content: [{
           type: "text" as const,
           text: JSON.stringify({
             success: true,
+            dashboard_refreshed: dashOk,
             task_id: task.id,
             title: task.title,
             status: finalStatus,
@@ -180,69 +184,4 @@ export const completeTaskHandler = (vault: Vault, config: Config) =>
     },
   );
 
-/**
- * Append an entry to the Agent Log section.
- * If no Agent Log section exists, one is created at the end.
- */
-function appendToAgentLog(content: string, entry: string): string {
-  const agentLogRegex = /^## Agent Log\s*$/m;
-  const match = agentLogRegex.exec(content);
-
-  if (match) {
-    const afterLog = content.substring(match.index + match[0].length);
-    const nextHeading = afterLog.search(/^## /m);
-
-    if (nextHeading !== -1) {
-      const insertAt = match.index + match[0].length + nextHeading;
-      return (
-        content.substring(0, insertAt).trimEnd() +
-        "\n" + entry + "\n\n" +
-        content.substring(insertAt)
-      );
-    } else {
-      return content.trimEnd() + "\n" + entry + "\n";
-    }
-  } else {
-    return content.trimEnd() + "\n\n## Agent Log\n" + entry + "\n";
-  }
-}
-
-/**
- * Add or update a Deliverables section in the task note.
- */
-function addDeliverablesSection(content: string, deliverables: string[]): string {
-  const lines = deliverables.map((d) => `- ${d}`).join("\n");
-  const section = `\n## Deliverables\n\n${lines}\n`;
-
-  // Check if Deliverables section already exists
-  const delivRegex = /^## Deliverables\s*$/m;
-  const match = delivRegex.exec(content);
-
-  if (match) {
-    // Replace existing section
-    const afterSection = content.substring(match.index + match[0].length);
-    const nextHeading = afterSection.search(/^## /m);
-
-    if (nextHeading !== -1) {
-      return (
-        content.substring(0, match.index) +
-        `## Deliverables\n\n${lines}\n\n` +
-        afterSection.substring(nextHeading)
-      );
-    } else {
-      return content.substring(0, match.index) + `## Deliverables\n\n${lines}\n`;
-    }
-  } else {
-    // Add before Agent Log if it exists, otherwise at end
-    const agentLogRegex = /^## Agent Log\s*$/m;
-    const logMatch = agentLogRegex.exec(content);
-    if (logMatch) {
-      return (
-        content.substring(0, logMatch.index) +
-        `## Deliverables\n\n${lines}\n\n` +
-        content.substring(logMatch.index)
-      );
-    }
-    return content.trimEnd() + section;
-  }
-}
+// appendRawToAgentLog and addDeliverables are imported from task-schema.ts

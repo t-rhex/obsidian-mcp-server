@@ -18,6 +18,8 @@ import { safeToolHandler } from "../errors.js";
 import {
   parseTaskFrontmatter,
   todayDate,
+  nowISO,
+  appendToAgentLog,
   VALID_STATUSES,
   VALID_PRIORITIES,
   VALID_TYPES,
@@ -49,7 +51,7 @@ export const updateTaskSchema = {
     "Append a progress update to the Agent Log section. Timestamped automatically.",
   ),
   scope: z.array(z.string()).optional().describe(
-    "Update the scope (file paths this task can modify).",
+    "Update the advisory scope (file paths this task intends to modify).",
   ),
   depends_on: z.array(z.string()).optional().describe(
     "Update the dependency list.",
@@ -89,17 +91,19 @@ export const updateTaskHandler = (vault: Vault, config: Config) =>
 
       const { task } = entry;
 
-      // Cannot update terminal tasks (except to append logs)
+      // Terminal tasks can only be retried (-> pending) or have logs appended.
+      // Other field changes (priority, type, assignee) are blocked on terminal tasks.
       if (
         ["completed", "failed", "cancelled"].includes(task.status) &&
-        (input.status || input.priority || input.type || input.assignee !== undefined)
+        (input.priority || input.type || input.assignee !== undefined) &&
+        input.status !== "pending"
       ) {
         return {
           content: [{
             type: "text" as const,
             text: JSON.stringify({
               error: "TASK_TERMINAL",
-              message: `Task "${task.title}" is ${task.status}. Only log entries can be appended to terminal tasks.`,
+              message: `Task "${task.title}" is ${task.status}. Use status: "pending" to retry, or append log entries only.`,
               task_id: task.id,
               current_status: task.status,
             }),
@@ -135,9 +139,22 @@ export const updateTaskHandler = (vault: Vault, config: Config) =>
 
       // Update frontmatter fields
       const updatedFm: Record<string, unknown> = { ...parsed.frontmatter };
-      updatedFm.updated = todayDate();
+      updatedFm.updated = nowISO();
 
-      if (input.status) updatedFm.status = input.status;
+      if (input.status) {
+        updatedFm.status = input.status;
+
+        // Retry/reopen: reset assignee, clear completed_at, increment retry_count
+        if (
+          input.status === "pending" &&
+          ["completed", "failed", "cancelled"].includes(task.status)
+        ) {
+          updatedFm.assignee = "";
+          delete updatedFm.completed_at;
+          const prevRetries = typeof updatedFm.retry_count === "number" ? updatedFm.retry_count : 0;
+          updatedFm.retry_count = prevRetries + 1;
+        }
+      }
       if (input.priority) updatedFm.priority = input.priority;
       if (input.type) updatedFm.type = input.type;
       if (input.assignee !== undefined) updatedFm.assignee = input.assignee;
@@ -154,7 +171,7 @@ export const updateTaskHandler = (vault: Vault, config: Config) =>
       await vault.writeNote(entry.path, newContent, { overwrite: true });
 
       // Refresh dashboard
-      await refreshDashboard(vault, tasksFolder);
+      const dashOk = await refreshDashboard(vault, tasksFolder);
 
       // Build list of changes for the response
       const changes: string[] = [];
@@ -171,6 +188,7 @@ export const updateTaskHandler = (vault: Vault, config: Config) =>
           type: "text" as const,
           text: JSON.stringify({
             success: true,
+            dashboard_refreshed: dashOk,
             task_id: task.id,
             title: task.title,
             changes,
@@ -185,6 +203,10 @@ export const updateTaskHandler = (vault: Vault, config: Config) =>
 
 /**
  * Valid status transitions. Prevents nonsensical state changes.
+ *
+ * Terminal states (failed, cancelled) allow transition back to "pending"
+ * for retry. Completed tasks can also be reopened to "pending".
+ * Claimed tasks can be unclaimed back to "pending" (for reassignment).
  */
 function getValidTransitions(current: TaskStatus): TaskStatus[] {
   switch (current) {
@@ -197,49 +219,14 @@ function getValidTransitions(current: TaskStatus): TaskStatus[] {
     case "blocked":
       return ["pending", "cancelled"];
     case "completed":
+      return ["pending"]; // Reopen
     case "failed":
+      return ["pending"]; // Retry
     case "cancelled":
-      return []; // Terminal states — no transitions
+      return ["pending"]; // Reactivate
     default:
       return [];
   }
 }
 
-/**
- * Append a timestamped entry to the Agent Log section of a task note.
- * If no Agent Log section exists, one is created at the end.
- */
-function appendToAgentLog(content: string, logEntry: string): string {
-  const timestamp = new Date().toISOString().replace("T", " ").split(".")[0];
-  const entry = `\n- **[${timestamp}]** ${logEntry}`;
-
-  // Find the Agent Log section
-  const agentLogRegex = /^## Agent Log\s*$/m;
-  const match = agentLogRegex.exec(content);
-
-  if (match) {
-    // Find the next ## heading or end of content
-    const afterLog = content.substring(match.index + match[0].length);
-    const nextHeading = afterLog.search(/^## /m);
-
-    if (nextHeading !== -1) {
-      // Insert before the next heading
-      const insertAt = match.index + match[0].length + nextHeading;
-      return (
-        content.substring(0, insertAt).trimEnd() +
-        "\n" + entry + "\n\n" +
-        content.substring(insertAt)
-      );
-    } else {
-      // Append at end of content
-      return content.trimEnd() + "\n" + entry + "\n";
-    }
-  } else {
-    // No Agent Log section — create one at the end
-    return (
-      content.trimEnd() +
-      "\n\n## Agent Log\n" +
-      entry + "\n"
-    );
-  }
-}
+// appendToAgentLog is now imported from task-schema.ts

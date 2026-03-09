@@ -40,7 +40,7 @@ export const createTaskSchema = {
     "Paths to vault notes that provide context for this task (e.g. 'Projects/my-api').",
   ),
   scope: z.array(z.string()).optional().describe(
-    "File paths this task is allowed to modify. Prevents agent conflicts.",
+    "Advisory: file paths this task intends to modify. Not enforced — agents should respect this to avoid conflicts.",
   ),
   acceptance_criteria: z.array(z.string()).optional().describe(
     "List of criteria that must be met for the task to be considered complete.",
@@ -82,6 +82,19 @@ export const createTaskHandler = (vault: Vault, config: Config) =>
     }) => {
       const tasksFolder = config.tasksFolder;
 
+      // Validate depends_on IDs exist (warn on missing, don't block creation)
+      const warnings: string[] = [];
+      if (input.depends_on && input.depends_on.length > 0) {
+        const { scanTasks: scan } = await import("../task-dashboard.js");
+        const existing = await scan(vault, tasksFolder);
+        const existingIds = new Set(existing.map((t) => t.task.id));
+        for (const depId of input.depends_on) {
+          if (!existingIds.has(depId)) {
+            warnings.push(`depends_on ID "${depId}" not found — task may stay blocked forever`);
+          }
+        }
+      }
+
       // Build frontmatter
       const fm = buildTaskFrontmatter({
         title: input.title,
@@ -96,7 +109,8 @@ export const createTaskHandler = (vault: Vault, config: Config) =>
         timeout_minutes: input.timeout_minutes,
         tags: input.tags,
         assignee: input.assignee,
-        status: input.assignee ? "claimed" : (input.depends_on?.length ? "blocked" : "pending"),
+        // Dependencies take precedence: blocked > claimed > pending
+        status: input.depends_on?.length ? "blocked" : (input.assignee ? "claimed" : "pending"),
       });
 
       // Build body
@@ -113,13 +127,14 @@ export const createTaskHandler = (vault: Vault, config: Config) =>
       await vault.writeNote(taskPath, content, { overwrite: false });
 
       // Refresh dashboard
-      await refreshDashboard(vault, tasksFolder);
+      const dashOk = await refreshDashboard(vault, tasksFolder);
 
       return {
         content: [{
           type: "text" as const,
           text: JSON.stringify({
             success: true,
+            dashboard_refreshed: dashOk,
             task: {
               id: fm.id,
               title: fm.title,
@@ -128,6 +143,7 @@ export const createTaskHandler = (vault: Vault, config: Config) =>
               type: fm.type,
               path: taskPath,
             },
+            warnings: warnings.length > 0 ? warnings : undefined,
             message: `Task created: ${fm.title} (${fm.id})`,
           }, null, 2),
         }],

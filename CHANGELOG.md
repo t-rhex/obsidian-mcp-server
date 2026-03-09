@@ -11,13 +11,20 @@ All notable changes to this project will be documented in this file.
   - `claim_task` — atomically claim pending tasks with race condition prevention and dependency checking
   - `update_task` — update status/priority/type, append timestamped entries to Agent Log, with state transition validation
   - `complete_task` — mark tasks done/failed/cancelled with summary, deliverables, and automatic unblocking of dependent tasks
-- **Task schema** — structured frontmatter with `id`, `title`, `status`, `priority`, `type`, `assignee`, `depends_on`, `scope`, `context_notes`, `timeout_minutes`, and more
+- **Task schema** — structured frontmatter with `id`, `title`, `status`, `priority`, `type`, `assignee`, `depends_on`, `scope`, `context_notes`, `timeout_minutes`, `claimed_at`, `retry_count`, and more
 - **Auto-generated dashboard** — `DASHBOARD.md` refreshed after every task mutation with summary counts, active/pending/blocked/completed sections
 - **Dependency tracking** — tasks with `depends_on` are auto-blocked and can't be claimed until dependencies complete; completing a task automatically unblocks dependents
+- **Dependency validation** — `create_task` warns if `depends_on` references nonexistent task IDs
 - **Status transition validation** — enforces valid state machine transitions (e.g. can't jump from `pending` to `completed`)
-- **Scope isolation** — each task defines `scope[]` (file paths it can modify) to prevent agent conflicts
+- **Retry / reopen support** — failed, cancelled, and completed tasks can transition back to `pending` (clears assignee, increments `retry_count`)
+- **Unclaim support** — claimed tasks can be set back to `pending` for reassignment (e.g. when an agent crashes)
+- **Timeout detection** — `list_tasks` returns `is_overdue: true` for tasks exceeding their `timeout_minutes` since `claimed_at`
+- **Dashboard health reporting** — all mutation responses include `dashboard_refreshed: true/false`
+- **ISO 8601 timestamps** — `created`, `updated`, `completed_at`, `claimed_at` all use full ISO datetimes for precise ordering
+- **Advisory scope** — `scope[]` field documents which files a task intends to modify (not enforced — honest about limitations)
+- **Shared section editing** — `appendToAgentLog` and `addDeliverables` extracted to shared module with case-insensitive heading matching
 - **`TASKS_FOLDER` environment variable** — configurable task folder location (default: `Tasks`)
-- 76 new integration tests for task tools (110 total, up from 34)
+- 91 new integration tests for task tools (125 total, up from 34)
 
 ## [0.1.2] - 2026-03-09
 
