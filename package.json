@@ -10,6 +10,7 @@
   "files": [
     "build",
     "prompts",
+    "skills",
     "README.md",
     "LICENSE"
   ],
