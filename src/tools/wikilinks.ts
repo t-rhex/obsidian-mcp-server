@@ -75,37 +75,66 @@ function extractWikilinks(raw: string): WikiLink[] {
 }
 
 /**
- * Try to resolve a wikilink target to an actual file in the vault.
- * Obsidian resolves links by matching basenames (shortest unique path).
+ * Pre-built index of vault files for fast wikilink resolution.
+ * Avoids O(n) vault listing per link.
  */
-async function resolveWikilink(
-  vault: Vault,
-  target: string,
-): Promise<string | null> {
-  // Get all note files
+interface FileIndex {
+  /** Map of lowercase path-without-extension → original path */
+  byPath: Map<string, string>;
+  /** Map of lowercase path-with-extension → original path */
+  byFullPath: Map<string, string>;
+  /** Map of lowercase basename (no ext) → original path (first match wins) */
+  byName: Map<string, string>;
+}
+
+/**
+ * Build a file index from vault listing. Called once per handler invocation.
+ */
+async function buildFileIndex(vault: Vault): Promise<FileIndex> {
   const entries = await vault.list("", {
     recursive: true,
     extensionFilter: [".md", ".markdown"],
   });
 
-  const files = entries.filter((e) => e.type === "file");
+  const byPath = new Map<string, string>();
+  const byFullPath = new Map<string, string>();
+  const byName = new Map<string, string>();
+
+  for (const entry of entries) {
+    if (entry.type !== "file") continue;
+    const pathNoExt = entry.path.replace(/\.(md|markdown)$/, "");
+    byPath.set(pathNoExt.toLowerCase(), entry.path);
+    byFullPath.set(entry.path.toLowerCase(), entry.path);
+    const name = basename(entry.path, extname(entry.path)).toLowerCase();
+    if (!byName.has(name)) {
+      byName.set(name, entry.path);
+    }
+  }
+
+  return { byPath, byFullPath, byName };
+}
+
+/**
+ * Resolve a wikilink target using a pre-built file index.
+ * Obsidian resolves links by matching basenames (shortest unique path).
+ */
+function resolveWikilinkFromIndex(
+  index: FileIndex,
+  target: string,
+): string | null {
   const targetLower = target.toLowerCase();
 
-  // 1. Exact path match (with or without extension)
-  for (const f of files) {
-    const pathNoExt = f.path.replace(/\.(md|markdown)$/, "");
-    if (pathNoExt.toLowerCase() === targetLower || f.path.toLowerCase() === targetLower) {
-      return f.path;
-    }
-  }
+  // 1. Exact path match (without extension)
+  const byPath = index.byPath.get(targetLower);
+  if (byPath) return byPath;
 
-  // 2. Basename match (Obsidian's default resolution)
-  for (const f of files) {
-    const name = basename(f.path, extname(f.path));
-    if (name.toLowerCase() === targetLower) {
-      return f.path;
-    }
-  }
+  // 2. Exact path match (with extension)
+  const byFull = index.byFullPath.get(targetLower);
+  if (byFull) return byFull;
+
+  // 3. Basename match (Obsidian's default resolution)
+  const byName = index.byName.get(targetLower);
+  if (byName) return byName;
 
   return null;
 }
@@ -114,6 +143,9 @@ export const wikilinksHandler = (vault: Vault) =>
   safeToolHandler(
     async (input: { action: string; path?: string; limit?: number }) => {
       const maxResults = input.limit ?? 50;
+
+      // Build file index once — used by all actions
+      const index = await buildFileIndex(vault);
 
       // ─── resolve: Find what file a [[wikilink]] points to ─────────
       if (input.action === "resolve") {
@@ -124,7 +156,7 @@ export const wikilinksHandler = (vault: Vault) =>
           };
         }
 
-        const resolved = await resolveWikilink(vault, input.path);
+        const resolved = resolveWikilinkFromIndex(index, input.path);
 
         if (!resolved) {
           return {
@@ -169,7 +201,7 @@ export const wikilinksHandler = (vault: Vault) =>
         const targetPath = vault.ensureNoteExtension(input.path);
         const targetName = basename(targetPath, extname(targetPath)).toLowerCase();
 
-        // Get all notes
+        // Use index to iterate all note files
         const entries = await vault.list("", {
           recursive: true,
           extensionFilter: [".md", ".markdown"],
@@ -230,20 +262,18 @@ export const wikilinksHandler = (vault: Vault) =>
         const raw = await vault.readNote(input.path);
         const links = extractWikilinks(raw);
 
-        // Try to resolve each link
-        const resolved = await Promise.all(
-          links.slice(0, maxResults).map(async (link) => {
-            const target = await resolveWikilink(vault, link.target);
-            return {
-              target: link.target,
-              heading: link.heading,
-              alias: link.alias,
-              line: link.line,
-              resolved: target !== null,
-              resolvedPath: target,
-            };
-          }),
-        );
+        // Resolve each link using the pre-built index (no I/O per link)
+        const resolved = links.slice(0, maxResults).map((link) => {
+          const target = resolveWikilinkFromIndex(index, link.target);
+          return {
+            target: link.target,
+            heading: link.heading,
+            alias: link.alias,
+            line: link.line,
+            resolved: target !== null,
+            resolvedPath: target,
+          };
+        });
 
         return {
           content: [{
@@ -277,7 +307,8 @@ export const wikilinksHandler = (vault: Vault) =>
             const broken: string[] = [];
 
             for (const link of links) {
-              const target = await resolveWikilink(vault, link.target);
+              // Use pre-built index — no I/O per link
+              const target = resolveWikilinkFromIndex(index, link.target);
               if (!target) {
                 broken.push(link.target);
                 totalBroken++;

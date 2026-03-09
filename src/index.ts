@@ -24,9 +24,13 @@
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { createRequire } from "node:module";
 import { loadConfig } from "./config.js";
 import { Vault } from "./vault.js";
 import { GitOps } from "./git.js";
+
+const require = createRequire(import.meta.url);
+const pkg = require("../package.json") as { version: string; description: string };
 
 import { readNoteSchema, readNoteHandler } from "./tools/read-note.js";
 import { createNoteSchema, createNoteHandler } from "./tools/create-note.js";
@@ -42,6 +46,29 @@ import { wikilinksSchema, wikilinksHandler } from "./tools/wikilinks.js";
 // ─── Bootstrap ──────────────────────────────────────────────────────
 
 async function main() {
+  // Handle --help and --version flags
+  if (process.argv.includes("--help") || process.argv.includes("-h")) {
+    console.log(`mcp-obsidian-vault v${pkg.version}`);
+    console.log();
+    console.log("MCP server for Obsidian vaults — direct filesystem access with git sync.");
+    console.log();
+    console.log("Usage:");
+    console.log("  OBSIDIAN_VAULT_PATH=/path/to/vault mcp-obsidian-vault");
+    console.log();
+    console.log("Environment variables:");
+    console.log("  OBSIDIAN_VAULT_PATH       (required) Absolute path to your vault");
+    console.log("  GIT_AUTO_SYNC             Auto commit+push after writes (default: false)");
+    console.log("  DAILY_NOTE_FOLDER         Subfolder for daily notes (default: Daily Notes)");
+    console.log();
+    console.log("See https://github.com/t-rhex/obsidian-mcp-server for full documentation.");
+    process.exit(0);
+  }
+
+  if (process.argv.includes("--version") || process.argv.includes("-v")) {
+    console.log(pkg.version);
+    process.exit(0);
+  }
+
   // Load and validate configuration
   const config = loadConfig();
   const vault = new Vault(config);
@@ -49,9 +76,9 @@ async function main() {
 
   // ─── Auto-Sync Setup ─────────────────────────────────────────────
 
-  if (config.gitAutoSync) {
-    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+  let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
+  if (config.gitAutoSync) {
     const autoSync = async () => {
       try {
         const isRepo = await git.isGitRepo();
@@ -88,8 +115,8 @@ async function main() {
   // ─── Server Setup ─────────────────────────────────────────────────
 
   const server = new McpServer({
-    name: "obsidian-vault",
-    version: "1.0.0",
+    name: "mcp-obsidian-vault",
+    version: pkg.version,
   });
 
   // ─── Register Tools ─────────────────────────────────────────────
@@ -192,6 +219,11 @@ async function main() {
     if (isShuttingDown) return;
     isShuttingDown = true;
     console.error("Shutting down Obsidian MCP Server...");
+    // Clear any pending auto-sync debounce timer
+    if (debounceTimer) {
+      clearTimeout(debounceTimer);
+      debounceTimer = null;
+    }
     try {
       await server.close();
     } catch {

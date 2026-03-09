@@ -93,6 +93,7 @@ export const gitSyncHandler = (git: GitOps, vault: Vault) =>
       }
 
       case "commit": {
+        await git.assertGitReady();
         await git.add();
         const commitResult = await git.commit(input.message ?? "manual commit");
         return respond({
@@ -104,6 +105,7 @@ export const gitSyncHandler = (git: GitOps, vault: Vault) =>
       }
 
       case "sync": {
+        await git.assertGitReady();
         const syncResult = await git.sync(input.message);
         return respond({
           success: true,
@@ -113,6 +115,7 @@ export const gitSyncHandler = (git: GitOps, vault: Vault) =>
       }
 
       case "pull": {
+        await git.assertGitReady();
         const pullResult = await git.pull();
         return respond({
           success: pullResult.success,
@@ -122,6 +125,7 @@ export const gitSyncHandler = (git: GitOps, vault: Vault) =>
       }
 
       case "push": {
+        await git.assertGitReady();
         const pushResult = await git.push();
         return respond({
           success: pushResult.success,
@@ -131,6 +135,7 @@ export const gitSyncHandler = (git: GitOps, vault: Vault) =>
       }
 
       case "status": {
+        await git.assertGitReady();
         const statusResult = await git.status();
         return respond({
           success: true,
@@ -140,6 +145,7 @@ export const gitSyncHandler = (git: GitOps, vault: Vault) =>
       }
 
       case "log": {
+        await git.assertGitReady();
         const logResult = await git.log(input.limit ?? 10);
         return respond({
           success: true,
@@ -150,6 +156,7 @@ export const gitSyncHandler = (git: GitOps, vault: Vault) =>
       }
 
       case "diff": {
+        await git.assertGitReady();
         const diffResult = await git.diff(input.path);
         return respond({
           success: true,
@@ -160,6 +167,7 @@ export const gitSyncHandler = (git: GitOps, vault: Vault) =>
       }
 
       case "remote_add": {
+        await git.assertGitReady();
         if (!input.remote_url) {
           return {
             content: [
@@ -187,6 +195,7 @@ export const gitSyncHandler = (git: GitOps, vault: Vault) =>
       }
 
       case "remote_list": {
+        await git.assertGitReady();
         const remotes = await git.remoteList();
         return respond({
           success: true,

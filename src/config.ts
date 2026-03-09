@@ -47,7 +47,7 @@ const DEFAULT_CONFIG: Omit<Config, "vaultPath"> = {
   maxSearchResults: 50,
   searchTimeoutMs: 30_000, // 30 seconds
   trashOnDelete: true,
-  noteExtensions: [".md", ".markdown", ".txt"],
+  noteExtensions: [".md", ".markdown"],
   gitAutoSync: false,
   gitAutoSyncDebounceMs: 5000,
   gitCommitMessagePrefix: "vault: ",
@@ -90,8 +90,20 @@ export function loadConfig(): Config {
     vaultPath,
     dailyNoteFolder:
       process.env.DAILY_NOTE_FOLDER ?? DEFAULT_CONFIG.dailyNoteFolder,
-    dailyNoteFormat:
-      process.env.DAILY_NOTE_FORMAT ?? DEFAULT_CONFIG.dailyNoteFormat,
+    dailyNoteFormat: (() => {
+      const fmt = process.env.DAILY_NOTE_FORMAT ?? DEFAULT_CONFIG.dailyNoteFormat;
+      if (fmt !== "YYYY-MM-DD") {
+        console.error(
+          `Warning: DAILY_NOTE_FORMAT="${fmt}" is not supported. Only YYYY-MM-DD is currently implemented. Using YYYY-MM-DD.`,
+        );
+        return "YYYY-MM-DD";
+      }
+      return fmt;
+    })(),
+    maxFileSizeBytes: parsePositiveInt(
+      process.env.MAX_FILE_SIZE_BYTES,
+      DEFAULT_CONFIG.maxFileSizeBytes,
+    ),
     maxSearchResults: parsePositiveInt(
       process.env.MAX_SEARCH_RESULTS,
       DEFAULT_CONFIG.maxSearchResults,

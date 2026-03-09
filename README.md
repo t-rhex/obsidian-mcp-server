@@ -10,7 +10,7 @@ An MCP (Model Context Protocol) server that gives AI assistants direct filesyste
 - **Browse vault structure** with recursive listing and depth control
 - **Tag management** — read, add, remove tags from frontmatter (deduplicates automatically)
 - **Daily notes** — get, create, or append by date (`today`, `yesterday`, `2025-03-08`, etc.)
-- **Git sync** — commit, pull, push, and full sync via git CLI. Optional auto-sync after every write.
+- **Git sync (optional)** — commit, pull, push, and full sync via git CLI. Auto-sync after every write pushes to remote automatically. Git is entirely optional — the server works perfectly without it.
 
 ## Installation
 
@@ -46,6 +46,8 @@ Add to your `claude_desktop_config.json`:
 
 ### With git auto-sync
 
+Enable `GIT_AUTO_SYNC` to automatically commit and push to remote after every write. Requires the vault to be a git repo with a remote configured. If no remote is configured, changes are committed locally only.
+
 ```json
 {
   "mcpServers": {
@@ -60,6 +62,10 @@ Add to your `claude_desktop_config.json`:
   }
 }
 ```
+
+### Without git (notes only)
+
+If you don't need git sync at all, just set `OBSIDIAN_VAULT_PATH` — that's it. The `git_sync` tool will still be available but won't do anything unless your vault is a git repo. No git installation required for basic note operations.
 
 ### From source
 
@@ -209,17 +215,18 @@ All configuration is via environment variables.
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `DAILY_NOTE_FOLDER` | `Daily Notes` | Subfolder for daily notes |
-| `DAILY_NOTE_FORMAT` | `YYYY-MM-DD` | Date format for daily note filenames |
+| `DAILY_NOTE_FORMAT` | `YYYY-MM-DD` | Date format for daily note filenames (only `YYYY-MM-DD` is currently supported) |
 | `TRASH_ON_DELETE` | `true` | Move deleted files to `.trash/` instead of permanent delete |
+| `MAX_FILE_SIZE_BYTES` | `10485760` | Maximum file size to read in bytes (default 10 MB) |
 | `MAX_SEARCH_RESULTS` | `50` | Maximum search results returned |
 | `SEARCH_TIMEOUT_MS` | `30000` | Search timeout in milliseconds |
-| `NOTE_EXTENSIONS` | `.md,.markdown,.txt` | File extensions treated as notes |
+| `NOTE_EXTENSIONS` | `.md,.markdown` | File extensions treated as notes (comma-separated) |
 
 ### Optional — Git Sync
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `GIT_AUTO_SYNC` | `false` | Auto commit + push after every write/delete |
+| `GIT_AUTO_SYNC` | `false` | Auto commit + push after every write/delete. Pushes to remote if configured, otherwise commits locally only. |
 | `GIT_AUTO_SYNC_DEBOUNCE_MS` | `5000` | Wait time after last write before auto-syncing |
 | `GIT_COMMIT_MESSAGE_PREFIX` | `vault: ` | Prefix for auto-commit messages |
 | `GIT_REMOTE` | `origin` | Default git remote name |
@@ -237,7 +244,46 @@ If your vault isn't a git repo yet, use the `git_sync` tool:
 3. git_sync(action: "sync", message: "initial commit")
 ```
 
-From then on, set `GIT_AUTO_SYNC=true` to automatically sync after every change, or use `git_sync(action: "sync")` manually.
+From then on, set `GIT_AUTO_SYNC=true` to automatically commit and push after every change, or use `git_sync(action: "sync")` manually.
+
+> **Don't want git?** That's fine — skip all of this. The server works without git. Just set `OBSIDIAN_VAULT_PATH` and go.
+
+## Syncing Between Laptop and Phone
+
+Use git sync to keep your vault in sync across devices. The MCP server handles the laptop side; your phone uses the Obsidian Git community plugin.
+
+### Setup
+
+1. **Laptop** — configure this MCP server with `GIT_AUTO_SYNC=true` pointing at a **private** GitHub repo
+2. **Phone (iOS)** — install [Obsidian Git](https://github.com/Vinzent03/obsidian-git) community plugin, or use [Working Copy](https://workingcopy.app/) as a git client and point Obsidian at the cloned repo
+3. **Phone (Android)** — install [Obsidian Git](https://github.com/Vinzent03/obsidian-git) community plugin (has built-in git support on Android)
+
+### How it works
+
+```
+Laptop (MCP server)                    GitHub (private repo)                Phone (Obsidian Git)
+       │                                       │                                   │
+       ├── edit note ──► auto-commit + push ──►│                                   │
+       │                                       │◄── pull on open ──────────────────┤
+       │                                       │                                   ├── edit note
+       │                                       │◄── commit + push ─────────────────┤
+       │◄── pull (next auto-sync) ────────────┤                                   │
+```
+
+- **Laptop → Phone**: MCP auto-sync pushes after every write. Open Obsidian on your phone and the Git plugin pulls latest.
+- **Phone → Laptop**: Obsidian Git plugin commits and pushes. Next time the MCP server writes, auto-sync pulls before pushing (pull → commit → push).
+- **Conflict resolution**: `GIT_PULL_REBASE=true` (default) keeps history clean. If a merge conflict occurs, the `git_sync` tool reports it and you can resolve manually.
+
+### Recommended Obsidian Git plugin settings (phone)
+
+| Setting | Value | Why |
+|---------|-------|-----|
+| Auto pull on open | Enabled | Get latest notes when you open the app |
+| Auto push after commit | Enabled | Push your edits immediately |
+| Pull on interval | 5–10 min | Catch changes while the app is open |
+| Commit message | `mobile: {{date}}` | Distinguish mobile vs MCP commits |
+
+> **Important**: Use a **private** GitHub repo for your vault. Your notes are personal — don't expose them publicly.
 
 ## Security
 
