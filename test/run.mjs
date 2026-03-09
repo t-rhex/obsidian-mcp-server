@@ -835,6 +835,129 @@ section("Project Tools — dashboard includes projects section");
   assert(dashboard.includes("Auth Rewrite"), "dashboard shows project name");
 }
 
+// ─── Append Mode Tests ──────────────────────────────────────────────
+
+let appendedTaskIds;
+
+section("Project Tools — create_project append mode");
+{
+  // Get an existing task ID from the project for depends_on_existing
+  const listHandler = listTasksHandler(vault, config);
+  const listResult = await listHandler({ project: projectId, status: "all" });
+  const listData = JSON.parse(listResult.content[0].text);
+  const existingTaskId = listData.tasks[0].id;
+
+  const handler = createProjectHandler(vault, config);
+  const result = await handler({
+    project_id: projectId,
+    tasks: [
+      { title: "Add rate limiting", type: "code", description: "Implement rate limiting on auth endpoints." },
+      { title: "Security audit", type: "research", depends_on_indices: [0], description: "Audit the new auth flow." },
+      { title: "Load testing", type: "code", depends_on_existing: [existingTaskId], description: "Load test the auth endpoints." },
+    ],
+    source: "test",
+  });
+  assert(!result.isError, "append mode succeeded");
+  const data = JSON.parse(result.content[0].text);
+  assert(data.success === true, "append returns success");
+  assert(data.mode === "append", "mode is append");
+  assert(data.project.id === projectId, "same project ID");
+  assert(data.tasks.length === 3, "3 new tasks created");
+  assert(data.summary.pending === 1, "1 task immediately claimable");
+  assert(data.summary.blocked === 2, "2 tasks blocked");
+  assert(data.dashboard_refreshed === true, "dashboard refreshed after append");
+
+  // Verify the new tasks belong to the project
+  const rateLimitTask = data.tasks.find((t) => t.title === "Add rate limiting");
+  assert(rateLimitTask.status === "pending", "rate limiting task is pending (no deps)");
+
+  const auditTask = data.tasks.find((t) => t.title === "Security audit");
+  assert(auditTask.status === "blocked", "audit task is blocked (depends on rate limiting)");
+
+  const loadTestTask = data.tasks.find((t) => t.title === "Load testing");
+  assert(loadTestTask.status === "blocked", "load test task is blocked (depends_on_existing)");
+
+  appendedTaskIds = data.tasks.map((t) => t.id);
+}
+
+section("Project Tools — append mode updates project note Sub-Tasks");
+{
+  // Read the project note and verify it has the new tasks listed
+  const listHandler = listTasksHandler(vault, config);
+  const listResult = await listHandler({ project: projectId, status: "all" });
+  const listData = JSON.parse(listResult.content[0].text);
+
+  // Original 4 + new 3 = 7 total tasks in the project
+  assert(listData.total === 7, "project now has 7 sub-tasks after append");
+
+  // Verify new tasks have correct project field
+  for (const tid of appendedTaskIds) {
+    const task = listData.tasks.find((t) => t.id === tid);
+    assert(task, `appended task ${tid} exists in project listing`);
+    assert(task.project === projectId, `appended task ${tid} belongs to project`);
+  }
+}
+
+section("Project Tools — append mode get_project_status reflects new tasks");
+{
+  const handler = getProjectStatusHandler(vault, config);
+  const result = await handler({ project_id: projectId });
+  const data = JSON.parse(result.content[0].text);
+
+  assert(data.progress.total === 7, "project status shows 7 total tasks");
+  assert(data.tasks.length === 7, "project status lists all 7 tasks");
+}
+
+section("Project Tools — append mode with nonexistent project fails");
+{
+  const handler = createProjectHandler(vault, config);
+  const result = await handler({
+    project_id: "proj-nonexistent-fake",
+    tasks: [{ title: "Orphan task" }],
+    source: "test",
+  });
+  assert(result.isError === true, "append to nonexistent project fails");
+  const data = JSON.parse(result.content[0].text);
+  assert(data.error === "PROJECT_NOT_FOUND", "correct error code for missing project");
+}
+
+section("Project Tools — append mode with invalid depends_on_existing fails");
+{
+  const handler = createProjectHandler(vault, config);
+  const result = await handler({
+    project_id: projectId,
+    tasks: [{ title: "Bad dep task", depends_on_existing: ["task-fake-nonexistent"] }],
+    source: "test",
+  });
+  assert(result.isError === true, "invalid depends_on_existing fails");
+  const data = JSON.parse(result.content[0].text);
+  assert(data.error === "INVALID_EXISTING_DEPENDENCY", "correct error code for invalid existing dep");
+}
+
+section("Project Tools — new project requires title and description");
+{
+  const handler = createProjectHandler(vault, config);
+
+  // Missing title
+  const noTitle = await handler({
+    tasks: [{ title: "Some task" }],
+    source: "test",
+  });
+  assert(noTitle.isError === true, "missing title returns error");
+  const titleErr = JSON.parse(noTitle.content[0].text);
+  assert(titleErr.error === "MISSING_TITLE", "correct error for missing title");
+
+  // Missing description
+  const noDesc = await handler({
+    title: "Has Title",
+    tasks: [{ title: "Some task" }],
+    source: "test",
+  });
+  assert(noDesc.isError === true, "missing description returns error");
+  const descErr = JSON.parse(noDesc.content[0].text);
+  assert(descErr.error === "MISSING_DESCRIPTION", "correct error for missing description");
+}
+
 section("Task Config — TASKS_FOLDER env var");
 {
   process.env.TASKS_FOLDER = "MyTasks";

@@ -271,7 +271,8 @@ async function main() {
     "Create a project with multiple sub-tasks in one call. " +
     "Use depends_on_indices to wire up task dependencies by array position. " +
     "Independent tasks can be claimed by different agents in parallel. " +
-    "Returns all task IDs for immediate claiming.",
+    "Returns all task IDs for immediate claiming. " +
+    "Append mode: pass project_id to add new sub-tasks to an existing project.",
     createProjectSchema,
     createProjectHandler(vault, config),
   );
