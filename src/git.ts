@@ -329,13 +329,32 @@ export class GitOps {
   }
 
   /**
-   * Push changes to remote.
+   * Push changes to remote. Automatically uses -u on first push when
+   * the branch has no upstream tracking branch configured.
    */
   async push(): Promise<{ success: boolean; message: string }> {
     const remote = getGitRemote(this.config);
     const branch = getGitBranch(this.config);
 
-    const { stdout, stderr } = await this.execGit(["push", remote, branch]);
+    // Check if upstream tracking is configured
+    let hasUpstream = false;
+    try {
+      const { stdout } = await this.execGit([
+        "rev-parse",
+        "--abbrev-ref",
+        "--symbolic-full-name",
+        "@{u}",
+      ]);
+      hasUpstream = stdout.trim().length > 0;
+    } catch {
+      hasUpstream = false;
+    }
+
+    const args = hasUpstream
+      ? ["push", remote, branch]
+      : ["push", "-u", remote, branch];
+
+    const { stdout, stderr } = await this.execGit(args);
     return {
       success: true,
       message: stderr.trim() || stdout.trim() || "Push completed.",
@@ -426,7 +445,20 @@ export class GitOps {
   }
 
   /**
-   * All-in-one sync: add all → commit → pull → push.
+   * Check if a remote is configured (i.e. has at least one remote).
+   */
+  async hasRemote(): Promise<boolean> {
+    try {
+      const remotes = await this.remoteList();
+      return remotes.length > 0;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * All-in-one sync: add all → commit → pull (if remote) → push (if remote).
+   * Gracefully skips pull/push when no remote is configured.
    */
   async sync(
     message?: string,
@@ -455,6 +487,16 @@ export class GitOps {
       commitMsg = result.message;
     }
 
+    // Check if a remote is configured before attempting pull/push
+    const remoteConfigured = await this.hasRemote();
+    if (!remoteConfigured) {
+      const parts: string[] = [];
+      if (committed) parts.push(`Committed: ${commitMsg}`);
+      else parts.push("Nothing to commit");
+      parts.push("No remote configured, skipping pull/push");
+      return { committed, pulled: false, pushed: false, message: parts.join(". ") };
+    }
+
     // Pull
     let pulled = false;
     let pullMsg = "";
@@ -471,7 +513,9 @@ export class GitOps {
           message: `Committed: ${committed}. Pull failed due to merge conflict: ${err.message}`,
         };
       }
-      throw err;
+      // If pull fails for other reasons (e.g. no upstream tracking branch yet),
+      // log but continue to push which will set up tracking
+      pullMsg = err instanceof Error ? err.message : String(err);
     }
 
     // Push
