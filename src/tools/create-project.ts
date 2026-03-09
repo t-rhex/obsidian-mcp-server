@@ -30,11 +30,13 @@ import {
   buildTaskBody,
   buildTaskPath,
   buildProjectPath,
+  buildProjectFolder,
   generateProjectId,
   generateTaskId,
   nowISO,
   parseTaskFrontmatter,
   RoutingRule,
+  slugify,
   TaskPriority,
   TaskType,
 } from "../task-schema.js";
@@ -187,6 +189,7 @@ export const createProjectHandler = (vault: Vault, config: Config) =>
       let projectTitle: string;
       let projectPriority: TaskPriority;
       let projectPath: string | undefined;
+      let projectFolder: string | undefined;
       let existingProjectContent: string | undefined;
 
       if (isAppendMode) {
@@ -212,6 +215,16 @@ export const createProjectHandler = (vault: Vault, config: Config) =>
         projectTitle = input.title ?? projectEntry.task.title;
         projectPriority = input.priority ?? projectEntry.task.priority;
         projectPath = projectEntry.path;
+        // Derive the project folder from the existing project note's path
+        // e.g. "Tasks/auth-rewrite/proj-xxx-auth-rewrite.md" → "Tasks/auth-rewrite"
+        const pathParts = projectEntry.path.split("/");
+        if (pathParts.length >= 3) {
+          // Has subfolder structure — use the parent directory
+          projectFolder = pathParts.slice(0, -1).join("/");
+        } else {
+          // Legacy flat structure — use the project title to build subfolder
+          projectFolder = buildProjectFolder(tasksFolder, projectEntry.task.title);
+        }
         existingProjectContent = await vault.readNote(projectEntry.path);
 
         // Validate depends_on_existing references exist in the project
@@ -243,6 +256,7 @@ export const createProjectHandler = (vault: Vault, config: Config) =>
         projectId = generateProjectId();
         projectTitle = input.title!;
         projectPriority = input.priority ?? "medium";
+        projectFolder = buildProjectFolder(tasksFolder, projectTitle);
       }
 
       // ── Validate depends_on_indices are in range ──
@@ -383,7 +397,7 @@ export const createProjectHandler = (vault: Vault, config: Config) =>
           Object.entries(taskFm).filter(([, v]) => v !== undefined),
         ) as Record<string, unknown>;
         const taskContent = serializeNote(taskFmClean, taskBody);
-        const taskPath = buildTaskPath(tasksFolder, taskId, taskDef.title);
+        const taskPath = buildTaskPath(tasksFolder, taskId, taskDef.title, projectFolder);
 
         await vault.writeNote(taskPath, taskContent, { overwrite: false });
         createdTasks.push({ id: taskId, title: taskDef.title, status, path: taskPath });

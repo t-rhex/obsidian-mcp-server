@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.1] - 2026-03-09
+
+### Added
+- **Per-project subfolders** — `create_project` now creates a subfolder for each project under `Tasks/`. Sub-tasks are placed in the same subfolder, keeping related work organized. Standalone tasks (no project) remain at the `Tasks/` root.
+  - Folder structure: `Tasks/{project-slug}/proj-xxx.md`, `Tasks/{project-slug}/task-xxx.md`
+  - `scanTasks` now scans recursively to find tasks in subfolders
+  - `create_task` with a `project` field automatically places the task in the project's subfolder
+  - Append mode respects existing project subfolder paths
+  - Backward compatible: tasks already in the flat `Tasks/` folder are still found by recursive scan
+- 17 new integration tests (334 total)
+
 ## [0.3.0] - 2026-03-09
 
 ### Added

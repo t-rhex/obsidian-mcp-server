@@ -112,10 +112,19 @@ export function generateProjectId(): string {
 
 /**
  * Build the file path for a project note.
+ * Projects are stored in their own subfolder: Tasks/{slug}/proj-xxx-{slug}.md
  */
 export function buildProjectPath(tasksFolder: string, id: string, title: string): string {
   const slug = slugify(title);
-  return `${tasksFolder}/${id}-${slug}.md`;
+  return `${tasksFolder}/${slug}/${id}-${slug}.md`;
+}
+
+/**
+ * Build the subfolder path for a project.
+ * Returns the folder path (without trailing slash): Tasks/{slug}
+ */
+export function buildProjectFolder(tasksFolder: string, title: string): string {
+  return `${tasksFolder}/${slugify(title)}`;
 }
 
 /**
@@ -283,10 +292,13 @@ export function slugify(title: string): string {
 
 /**
  * Build the file path for a task note.
+ * If projectFolder is provided, the task goes in that subfolder.
+ * Otherwise it goes at the tasks root (standalone task).
  */
-export function buildTaskPath(tasksFolder: string, id: string, title: string): string {
+export function buildTaskPath(tasksFolder: string, id: string, title: string, projectFolder?: string): string {
   const slug = slugify(title);
-  return `${tasksFolder}/${id}-${slug}.md`;
+  const folder = projectFolder ?? tasksFolder;
+  return `${folder}/${id}-${slug}.md`;
 }
 
 /**
