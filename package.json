@@ -9,6 +9,7 @@
   },
   "files": [
     "build",
+    "prompts",
     "README.md",
     "LICENSE"
   ],

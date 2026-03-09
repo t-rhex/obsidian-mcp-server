@@ -21,6 +21,7 @@ const { listTasksHandler, listTasksSchema } = await import("../build/tools/list-
 const { claimTaskHandler, claimTaskSchema } = await import("../build/tools/claim-task.js");
 const { createProjectHandler } = await import("../build/tools/create-project.js");
 const { getProjectStatusHandler } = await import("../build/tools/get-project-status.js");
+const { registerPrompts } = await import("../build/prompts.js");
 const { updateTaskHandler, updateTaskSchema } = await import("../build/tools/update-task.js");
 const { completeTaskHandler, completeTaskSchema } = await import("../build/tools/complete-task.js");
 
@@ -845,6 +846,35 @@ section("Task Config — TASKS_FOLDER env var");
 
   const config4 = loadConfig();
   assert(config4.tasksFolder === "Tasks", "default tasksFolder is Tasks");
+}
+
+// ─── Prompt Tests ───────────────────────────────────────────────────
+
+section("MCP Prompts — registration");
+{
+  // Create a test MCP server and register prompts
+  const { McpServer } = await import("@modelcontextprotocol/sdk/server/mcp.js");
+  const testServer = new McpServer({ name: "test", version: "0.0.0" });
+
+  // Should not throw
+  try {
+    registerPrompts(testServer);
+    assert(true, "prompts registered without error");
+  } catch (e) {
+    assert(false, "prompts registered without error: " + e.message);
+  }
+
+  // Verify all 3 prompts are registered by trying to register again (should throw)
+  const promptNames = ["task-worker", "project-manager", "vault-assistant"];
+  for (const name of promptNames) {
+    try {
+      testServer.prompt(name, "duplicate", () => ({ messages: [] }));
+      assert(false, `prompt '${name}' was registered`);
+    } catch (e) {
+      // "Prompt X is already registered" — this confirms it exists
+      assert(e.message.includes("already registered"), `prompt '${name}' was registered`);
+    }
+  }
 }
 
 // ─── Cleanup & Report ───────────────────────────────────────────────

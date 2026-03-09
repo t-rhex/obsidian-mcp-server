@@ -405,6 +405,38 @@ A `DASHBOARD.md` is auto-generated in the tasks folder after every mutation, sho
 - **Scope is not enforced** — the server does not block writes outside a task's `scope[]`. Enforcement would require middleware in the vault write path.
 - **No automatic timeout recovery** — `is_overdue` is reported in `list_tasks` output, but timed-out tasks are not automatically released. A dispatcher (Phase 2) will handle this.
 
+## Agent Prompts
+
+The server exposes three **MCP prompts** that tell AI agents how to use the tools. MCP clients (Claude Desktop, opencode, etc.) can discover and inject these prompts automatically.
+
+| Prompt | Purpose | Use When |
+|--------|---------|----------|
+| `task-worker` | Find, claim, and complete tasks autonomously | Spawning a coding agent (Claude Code, Codex) |
+| `project-manager` | Plan projects, decompose into tasks, monitor progress | Orchestrating multi-agent work |
+| `vault-assistant` | Read, search, and organize notes | General vault management |
+
+### Using Prompts via MCP
+
+MCP clients can request prompts via `prompts/get`:
+
+```json
+{ "method": "prompts/get", "params": { "name": "task-worker", "arguments": { "agent_id": "claude-1", "project_id": "proj-abc" } } }
+```
+
+The `task-worker` prompt accepts:
+- `agent_id` — unique name for this agent (default: `agent-1`)
+- `project_id` — restrict to a specific project (optional)
+- `task_types` — comma-separated types: `code,research,writing,maintenance` (optional)
+
+### Using Prompts Manually
+
+The same prompts are available as markdown files in the [`prompts/`](./prompts) directory:
+- [`prompts/task-worker.md`](./prompts/task-worker.md)
+- [`prompts/project-manager.md`](./prompts/project-manager.md)
+- [`prompts/vault-assistant.md`](./prompts/vault-assistant.md)
+
+Copy-paste these into your agent's system prompt, replacing `{{agent_id}}` and `{{task_types}}` with actual values.
+
 ## Configuration
 
 All configuration is via environment variables.
@@ -506,9 +538,15 @@ Laptop (MCP server)                    GitHub (private repo)                Phon
 ## Project Structure
 
 ```
+prompts/
+├── task-worker.md        # System prompt for coding/worker agents
+├── project-manager.md    # System prompt for orchestrator agents
+└── vault-assistant.md    # System prompt for note management agents
+
 src/
 ├── index.ts              # MCP server entry point, tool registration, auto-sync wiring
 ├── config.ts             # Environment variable parsing with validation
+├── prompts.ts            # MCP prompt registrations (discoverable by clients)
 ├── errors.ts             # Typed error codes and safe handler wrapper
 ├── vault.ts              # Filesystem operations (path safety, atomic writes, list, search)
 ├── frontmatter.ts        # YAML frontmatter parse/serialize, tag extraction

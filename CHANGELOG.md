@@ -29,8 +29,12 @@ All notable changes to this project will be documented in this file.
 - **Project field on tasks** — `project` field links sub-tasks to their parent project
 - **Project filter in list_tasks** — `project` parameter + `exclude_projects` flag
 - **Dashboard projects section** — shows all projects with sub-task progress
+- **Agent prompts** — 3 MCP prompts discoverable by clients, also available as markdown files:
+  - `task-worker` — system prompt for coding agents that find, claim, and complete tasks autonomously
+  - `project-manager` — system prompt for orchestrator agents that plan projects and monitor progress
+  - `vault-assistant` — system prompt for note management agents
 - **`TASKS_FOLDER` environment variable** — configurable task folder location (default: `Tasks`)
-- 127 new integration tests for task tools (161 total, up from 34)
+- 131 new integration tests (165 total, up from 34)
 
 ## [0.1.2] - 2026-03-09
 

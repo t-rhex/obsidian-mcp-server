@@ -50,6 +50,7 @@ import { updateTaskSchema, updateTaskHandler } from "./tools/update-task.js";
 import { completeTaskSchema, completeTaskHandler } from "./tools/complete-task.js";
 import { createProjectSchema, createProjectHandler } from "./tools/create-project.js";
 import { getProjectStatusSchema, getProjectStatusHandler } from "./tools/get-project-status.js";
+import { registerPrompts } from "./prompts.js";
 
 // ─── Bootstrap ──────────────────────────────────────────────────────
 
@@ -278,6 +279,10 @@ async function main() {
     getProjectStatusSchema,
     getProjectStatusHandler(vault, config),
   );
+
+  // ─── Register Prompts ────────────────────────────────────────────
+
+  registerPrompts(server);
 
   // ─── Connect Transport ──────────────────────────────────────────
 
