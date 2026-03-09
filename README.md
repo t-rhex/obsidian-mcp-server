@@ -10,7 +10,7 @@ An MCP (Model Context Protocol) server that gives AI assistants direct filesyste
 - **Browse vault structure** with recursive listing and depth control
 - **Tag management** — read, add, remove tags from frontmatter (deduplicates automatically)
 - **Daily notes** — get, create, or append by date (`today`, `yesterday`, `2025-03-08`, etc.)
-- **Git sync** — commit, pull, push, and full sync via git CLI. Optional auto-sync after every write.
+- **Git sync (optional)** — commit, pull, push, and full sync via git CLI. Auto-sync after every write pushes to remote automatically. Git is entirely optional — the server works perfectly without it.
 
 ## Installation
 
@@ -46,6 +46,8 @@ Add to your `claude_desktop_config.json`:
 
 ### With git auto-sync
 
+Enable `GIT_AUTO_SYNC` to automatically commit and push to remote after every write. Requires the vault to be a git repo with a remote configured. If no remote is configured, changes are committed locally only.
+
 ```json
 {
   "mcpServers": {
@@ -60,6 +62,10 @@ Add to your `claude_desktop_config.json`:
   }
 }
 ```
+
+### Without git (notes only)
+
+If you don't need git sync at all, just set `OBSIDIAN_VAULT_PATH` — that's it. The `git_sync` tool will still be available but won't do anything unless your vault is a git repo. No git installation required for basic note operations.
 
 ### From source
 
@@ -219,7 +225,7 @@ All configuration is via environment variables.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `GIT_AUTO_SYNC` | `false` | Auto commit + push after every write/delete |
+| `GIT_AUTO_SYNC` | `false` | Auto commit + push after every write/delete. Pushes to remote if configured, otherwise commits locally only. |
 | `GIT_AUTO_SYNC_DEBOUNCE_MS` | `5000` | Wait time after last write before auto-syncing |
 | `GIT_COMMIT_MESSAGE_PREFIX` | `vault: ` | Prefix for auto-commit messages |
 | `GIT_REMOTE` | `origin` | Default git remote name |
@@ -237,7 +243,9 @@ If your vault isn't a git repo yet, use the `git_sync` tool:
 3. git_sync(action: "sync", message: "initial commit")
 ```
 
-From then on, set `GIT_AUTO_SYNC=true` to automatically sync after every change, or use `git_sync(action: "sync")` manually.
+From then on, set `GIT_AUTO_SYNC=true` to automatically commit and push after every change, or use `git_sync(action: "sync")` manually.
+
+> **Don't want git?** That's fine — skip all of this. The server works without git. Just set `OBSIDIAN_VAULT_PATH` and go.
 
 ## Security
 
