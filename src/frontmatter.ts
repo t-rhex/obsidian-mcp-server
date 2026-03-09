@@ -93,7 +93,7 @@ function extractTags(
 
   // From inline #tags in content
   // Matches #tag but not inside code blocks or URLs
-  const inlineTagRegex = /(?:^|\s)#([a-zA-Z0-9_\-/]+)/g;
+  const inlineTagRegex = /(?:^|\s)#([a-zA-Z0-9_\-/]+)/gm;
   let match;
   while ((match = inlineTagRegex.exec(strippedContent)) !== null) {
     tagSet.add(normalizeTag(match[1]));

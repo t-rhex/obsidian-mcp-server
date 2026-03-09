@@ -16,38 +16,8 @@ import { join } from "node:path";
 import { ErrorCode, VaultError } from "./errors.js";
 import { Config } from "./config.js";
 
-/** Git timeout in ms — used when config doesn't provide one */
-const DEFAULT_GIT_TIMEOUT_MS = 30_000;
-
-/** Extract git timeout from config, falling back to default */
-function getGitTimeout(config: Config): number {
-  const c = config as unknown as Record<string, unknown>;
-  return (c.gitTimeoutMs as number) ?? DEFAULT_GIT_TIMEOUT_MS;
-}
-
-/** Extract git remote name from config */
-function getGitRemote(config: Config): string {
-  const c = config as unknown as Record<string, unknown>;
-  return (c.gitRemote as string) ?? "origin";
-}
-
-/** Extract git branch name from config */
-function getGitBranch(config: Config): string {
-  const c = config as unknown as Record<string, unknown>;
-  return (c.gitBranch as string) ?? "main";
-}
-
-/** Extract git pull rebase preference from config */
-function getGitPullRebase(config: Config): boolean {
-  const c = config as unknown as Record<string, unknown>;
-  return (c.gitPullRebase as boolean) ?? true;
-}
-
-/** Extract git auto-commit message prefix from config */
-function getGitAutoCommitPrefix(config: Config): string {
-  const c = config as unknown as Record<string, unknown>;
-  return (c.gitAutoCommitPrefix as string) ?? "vault backup";
-}
+/** Lock acquisition timeout in ms */
+const LOCK_TIMEOUT_MS = 60_000;
 
 export class GitOps {
   private readonly cwd: string;
@@ -67,8 +37,24 @@ export class GitOps {
       this.locked = true;
       return;
     }
-    return new Promise<void>((resolve) => {
-      this.lockQueue.push(resolve);
+    return new Promise<void>((resolve, reject) => {
+      let settled = false;
+      const timer = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        reject(
+          new VaultError(
+            ErrorCode.GIT_TIMEOUT,
+            `Git lock acquisition timed out after ${LOCK_TIMEOUT_MS}ms. Another git operation may be stuck.`,
+          ),
+        );
+      }, LOCK_TIMEOUT_MS);
+      this.lockQueue.push(() => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve();
+      });
     });
   }
 
@@ -92,7 +78,7 @@ export class GitOps {
           args,
           {
             cwd: this.cwd,
-            timeout: getGitTimeout(this.config),
+            timeout: this.config.gitTimeoutMs,
             maxBuffer: 10 * 1024 * 1024,
           },
           (error, stdout, stderr) => {
@@ -113,8 +99,8 @@ export class GitOps {
                 reject(
                   new VaultError(
                     ErrorCode.GIT_TIMEOUT,
-                    `Git command timed out after ${getGitTimeout(this.config)}ms: git ${args.join(" ")}`,
-                    { args, timeout: getGitTimeout(this.config) },
+                    `Git command timed out after ${this.config.gitTimeoutMs}ms: git ${args.join(" ")}`,
+                    { args, timeout: this.config.gitTimeoutMs },
                   ),
                 );
                 return;
@@ -307,7 +293,7 @@ export class GitOps {
    */
   async pull(): Promise<{ success: boolean; message: string }> {
     const args = ["pull"];
-    if (getGitPullRebase(this.config)) {
+    if (this.config.gitPullRebase) {
       args.push("--rebase");
     }
 
@@ -333,8 +319,8 @@ export class GitOps {
    * the branch has no upstream tracking branch configured.
    */
   async push(): Promise<{ success: boolean; message: string }> {
-    const remote = getGitRemote(this.config);
-    const branch = getGitBranch(this.config);
+    const remote = this.config.gitRemote;
+    const branch = this.config.gitBranch;
 
     // Check if upstream tracking is configured
     let hasUpstream = false;
@@ -369,8 +355,7 @@ export class GitOps {
   ): Promise<{ hash: string; date: string; message: string; author: string }[]> {
     const { stdout } = await this.execGit([
       "log",
-      "--oneline",
-      `--format=%H|%aI|%an|%s`,
+      `--format=%H%x00%aI%x00%an%x00%s`,
       `-n`,
       String(limit),
     ]);
@@ -384,12 +369,12 @@ export class GitOps {
       .split("\n")
       .filter((line) => line.length > 0)
       .map((line) => {
-        const [hash, date, author, ...messageParts] = line.split("|");
+        const [hash, date, author, ...messageParts] = line.split("\0");
         return {
           hash: hash ?? "",
           date: date ?? "",
           author: author ?? "",
-          message: messageParts.join("|"),
+          message: messageParts.join("\0"),
         };
       });
   }
@@ -478,9 +463,9 @@ export class GitOps {
 
     if (!currentStatus.clean) {
       // Build commit message
-      const prefix = getGitAutoCommitPrefix(this.config);
+      const prefix = this.config.gitCommitMessagePrefix;
       const timestamp = new Date().toISOString().replace("T", " ").substring(0, 19);
-      const finalMessage = message ?? `${prefix}: ${timestamp}`;
+      const finalMessage = message ?? `${prefix}${timestamp}`;
 
       const result = await this.commit(finalMessage);
       committed = result.hash !== "";

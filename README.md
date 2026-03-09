@@ -215,11 +215,12 @@ All configuration is via environment variables.
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `DAILY_NOTE_FOLDER` | `Daily Notes` | Subfolder for daily notes |
-| `DAILY_NOTE_FORMAT` | `YYYY-MM-DD` | Date format for daily note filenames |
+| `DAILY_NOTE_FORMAT` | `YYYY-MM-DD` | Date format for daily note filenames (only `YYYY-MM-DD` is currently supported) |
 | `TRASH_ON_DELETE` | `true` | Move deleted files to `.trash/` instead of permanent delete |
+| `MAX_FILE_SIZE_BYTES` | `10485760` | Maximum file size to read in bytes (default 10 MB) |
 | `MAX_SEARCH_RESULTS` | `50` | Maximum search results returned |
 | `SEARCH_TIMEOUT_MS` | `30000` | Search timeout in milliseconds |
-| `NOTE_EXTENSIONS` | `.md,.markdown,.txt` | File extensions treated as notes |
+| `NOTE_EXTENSIONS` | `.md,.markdown` | File extensions treated as notes (comma-separated) |
 
 ### Optional — Git Sync
 

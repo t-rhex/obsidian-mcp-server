@@ -11,10 +11,12 @@ permissions:
 
 jobs:
   ci:
-    name: CI
-    runs-on: ubuntu-latest
+    name: CI (${{ matrix.os }}, Node ${{ matrix.node-version }})
+    runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
+        os: [ubuntu-latest, windows-latest]
         node-version: [18, 20, 22]
 
     steps:
@@ -44,14 +46,8 @@ jobs:
       - name: Run tests
         run: npm test
 
-      - name: Verify server starts
-        run: |
-          mkdir -p /tmp/test-vault
-          timeout 5 node build/index.js 2>&1 || true
-        env:
-          OBSIDIAN_VAULT_PATH: /tmp/test-vault
+      - name: Verify --help flag
+        run: node build/index.js --help
 
-      - name: Verify npx bin works
-        run: |
-          chmod +x build/index.js
-          node build/index.js --help 2>&1 || true
+      - name: Verify --version flag
+        run: node build/index.js --version
