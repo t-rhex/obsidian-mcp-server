@@ -14,7 +14,7 @@ const { Vault } = await import("../build/vault.js");
 const { GitOps } = await import("../build/git.js");
 const { loadConfig } = await import("../build/config.js");
 const { parseNote, serializeNote, addTags, removeTags } = await import("../build/frontmatter.js");
-const { buildTaskFrontmatter, buildTaskBody, buildTaskPath, parseTaskFrontmatter, generateTaskId, slugify } = await import("../build/task-schema.js");
+const { buildTaskFrontmatter, buildTaskBody, buildTaskPath, buildProjectPath, buildProjectFolder, parseTaskFrontmatter, generateTaskId, slugify } = await import("../build/task-schema.js");
 const { scanTasks, generateDashboard, refreshDashboard } = await import("../build/task-dashboard.js");
 const { createTaskHandler, createTaskSchema } = await import("../build/tools/create-task.js");
 const { listTasksHandler, listTasksSchema } = await import("../build/tools/list-tasks.js");
@@ -1688,6 +1688,125 @@ section("Task Schema — new fields defaults");
   assert(parsed.escalation_status === "none", "escalation_status defaults to none");
   assert(parsed.review_count === 0, "review_count defaults to 0");
   assert(parsed.review_required === undefined, "review_required defaults to undefined");
+}
+
+// ─── Per-Project Subfolders ─────────────────────────────────────────
+
+section("Project Subfolders — buildProjectPath uses subfolder");
+{
+  const path = buildProjectPath("Tasks", "proj-2026-03-09-abc123", "Auth Rewrite");
+  assert(path === "Tasks/auth-rewrite/proj-2026-03-09-abc123-auth-rewrite.md", "project path has subfolder");
+}
+
+section("Project Subfolders — buildProjectFolder");
+{
+  const folder = buildProjectFolder("Tasks", "Auth Rewrite");
+  assert(folder === "Tasks/auth-rewrite", "project folder derived from title");
+}
+
+section("Project Subfolders — buildTaskPath with projectFolder");
+{
+  const path = buildTaskPath("Tasks", "task-2026-03-09-xyz", "Design API", "Tasks/auth-rewrite");
+  assert(path === "Tasks/auth-rewrite/task-2026-03-09-xyz-design-api.md", "task in project subfolder");
+}
+
+section("Project Subfolders — buildTaskPath standalone (no projectFolder)");
+{
+  const path = buildTaskPath("Tasks", "task-2026-03-09-xyz", "Fix Bug");
+  assert(path === "Tasks/task-2026-03-09-xyz-fix-bug.md", "standalone task at root");
+}
+
+section("Project Subfolders — create_project places files in subfolder");
+{
+  const handler = createProjectHandler(vault, config);
+  const result = await handler({
+    title: "Subfolder Test Project",
+    description: "Testing per-project subfolders",
+    tasks: [
+      { title: "Task Alpha", type: "code" },
+      { title: "Task Beta", type: "writing", depends_on_indices: [0] },
+    ],
+  });
+  const data = JSON.parse(result.content[0].text);
+  assert(data.success === true, "project created");
+
+  // Verify project note is in a subfolder
+  assert(
+    data.project.path.includes("/subfolder-test-project/"),
+    "project note in subfolder: " + data.project.path,
+  );
+
+  // Verify task paths are in the same subfolder
+  assert(
+    data.tasks[0].path.includes("/subfolder-test-project/"),
+    "task alpha in project subfolder: " + data.tasks[0].path,
+  );
+  assert(
+    data.tasks[1].path.includes("/subfolder-test-project/"),
+    "task beta in project subfolder: " + data.tasks[1].path,
+  );
+
+  // Verify scanTasks still finds them (recursive scan)
+  const allTasks = await scanTasks(vault, "Tasks");
+  const foundAlpha = allTasks.find((t) => t.task.id === data.tasks[0].id);
+  assert(foundAlpha, "scanTasks finds task in subfolder");
+  // Use OS-agnostic check — Windows uses \ while Unix uses /
+  assert(
+    foundAlpha.path.includes("subfolder-test-project"),
+    "scanTasks returns correct subfolder path",
+  );
+}
+
+section("Project Subfolders — standalone task stays at root");
+{
+  const handler = createTaskHandler(vault, config);
+  const result = await handler({
+    title: "Standalone Root Task",
+    description: "No project, should stay at Tasks/ root",
+  });
+  const data = JSON.parse(result.content[0].text);
+  assert(data.success === true, "standalone task created");
+  const taskPath = data.task.path;
+  // Count slashes — Tasks/task-xxx.md has exactly 1 slash in relative path
+  const parts = taskPath.split("/");
+  assert(parts.length === 2, "standalone task at root level (2 path parts): " + taskPath);
+}
+
+section("Project Subfolders — append mode uses existing subfolder");
+{
+  // First, find the project we created above
+  const allTasks = await scanTasks(vault, "Tasks");
+  const subfolderProj = allTasks.find(
+    (t) => t.task.type === "project" && t.task.title === "Subfolder Test Project",
+  );
+  assert(subfolderProj, "found subfolder test project");
+
+  const handler = createProjectHandler(vault, config);
+  const result = await handler({
+    project_id: subfolderProj.task.id,
+    tasks: [
+      { title: "Task Gamma", type: "research" },
+    ],
+  });
+  const data = JSON.parse(result.content[0].text);
+  assert(data.success === true, "append succeeded");
+  assert(
+    data.tasks[0].path.includes("/subfolder-test-project/"),
+    "appended task in project subfolder: " + data.tasks[0].path,
+  );
+}
+
+section("Project Subfolders — get_project_status works with subfolders");
+{
+  const allTasks = await scanTasks(vault, "Tasks");
+  const subfolderProj = allTasks.find(
+    (t) => t.task.type === "project" && t.task.title === "Subfolder Test Project",
+  );
+  const handler = getProjectStatusHandler(vault, config);
+  const result = await handler({ project_id: subfolderProj.task.id });
+  assert(!result.isError, "project status succeeded");
+  const data = JSON.parse(result.content[0].text);
+  assert(data.progress.total === 3, "3 sub-tasks found (alpha, beta, gamma)");
 }
 
 // ─── Cleanup & Report ───────────────────────────────────────────────

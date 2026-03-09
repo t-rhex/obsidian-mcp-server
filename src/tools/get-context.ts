@@ -329,7 +329,7 @@ export const getContextHandler = (vault: Vault, config: Config) =>
       for (const folder of foldersToCheck) {
         try {
           const entries = await vault.list(folder || ".", {
-            recursive: false,
+            recursive: true,
             extensionFilter: [".md", ".markdown"],
           });
 

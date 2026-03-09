@@ -169,8 +169,23 @@ export const createTaskHandler = (vault: Vault, config: Config) =>
       // Build body
       const body = buildTaskBody(input.description, input.acceptance_criteria);
 
-      // Build path
-      const taskPath = buildTaskPath(tasksFolder, fm.id, fm.title);
+      // Build path — if task belongs to a project, place it in the project subfolder
+      let projectFolder: string | undefined;
+      if (input.project) {
+        const { scanTasks: scanAll } = await import("../task-dashboard.js");
+        const allTasks = await scanAll(vault, tasksFolder);
+        const projectEntry = allTasks.find(
+          (t) => t.task.id === input.project && t.task.type === "project",
+        );
+        if (projectEntry) {
+          // Derive folder from the project note's path
+          const pathParts = projectEntry.path.split("/");
+          if (pathParts.length >= 3) {
+            projectFolder = pathParts.slice(0, -1).join("/");
+          }
+        }
+      }
+      const taskPath = buildTaskPath(tasksFolder, fm.id, fm.title, projectFolder);
 
       // Serialize and write — strip undefined values (js-yaml rejects them)
       const fmClean = Object.fromEntries(

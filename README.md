@@ -791,7 +791,21 @@ sequenceDiagram
 
 ## Task Note Structure
 
-Tasks are markdown notes in `Tasks/` with structured YAML frontmatter:
+Tasks are markdown notes with structured YAML frontmatter. Project tasks are organized in per-project subfolders, while standalone tasks live at the `Tasks/` root:
+
+```
+Tasks/
+├── DASHBOARD.md
+├── auth-rewrite/                              # project subfolder
+│   ├── proj-2026-03-09-abc123-auth-rewrite.md
+│   ├── task-2026-03-09-def456-design-api.md
+│   └── task-2026-03-09-ghi789-implement-jwt.md
+├── api-migration/                             # another project
+│   └── ...
+└── task-2026-03-09-mno345-fix-typo.md         # standalone task
+```
+
+Example task note:
 
 ```markdown
 ---
@@ -956,7 +970,7 @@ src/
 
 prompts/                  # Agent persona prompts (ship with npm)
 skills/                   # Agent skills (ship with npm, skills.sh compatible)
-test/run.mjs              # 317 integration tests
+test/run.mjs              # 334 integration tests
 ```
 
 ---
@@ -966,7 +980,7 @@ test/run.mjs              # 317 integration tests
 ```bash
 npm install
 npm run build             # TypeScript → build/
-npm test                  # 317 integration tests
+npm test                  # 334 integration tests
 npm run dev               # tsc --watch
 ```
 

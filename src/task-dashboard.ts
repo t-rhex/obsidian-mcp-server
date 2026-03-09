@@ -25,7 +25,7 @@ export async function scanTasks(
   tasksFolder: string,
 ): Promise<TaskEntry[]> {
   const entries = await vault.list(tasksFolder, {
-    recursive: false,
+    recursive: true,
     extensionFilter: [".md", ".markdown"],
   });
 
