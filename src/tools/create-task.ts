@@ -179,7 +179,7 @@ export const createTaskHandler = (vault: Vault, config: Config) =>
         );
         if (projectEntry) {
           // Derive folder from the project note's path
-          const pathParts = projectEntry.path.split("/");
+          const pathParts = projectEntry.path.split(/[/\\]/);
           if (pathParts.length >= 3) {
             projectFolder = pathParts.slice(0, -1).join("/");
           }

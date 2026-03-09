@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.2] - 2026-03-09
+
+### Fixed
+- **Legacy flat project backward compatibility** — appending tasks to a v0.3.0 project (flat `Tasks/proj-xxx.md` structure without subfolder) no longer incorrectly creates a new subfolder. Appended tasks now correctly stay at the `Tasks/` root alongside existing tasks.
+
+### Tests
+- Added backward-compat test for legacy flat project append (342 total assertions)
+
 ## [0.3.1] - 2026-03-09
 
 ### Added
