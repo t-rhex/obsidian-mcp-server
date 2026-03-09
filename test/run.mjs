@@ -1809,6 +1809,84 @@ section("Project Subfolders — get_project_status works with subfolders");
   assert(data.progress.total === 3, "3 sub-tasks found (alpha, beta, gamma)");
 }
 
+// ─── Legacy Flat Project Backward Compatibility ────────────────────
+
+section("Project Subfolders — backward compat: legacy flat project append stays flat");
+{
+  // Simulate a v0.3.0 legacy project: project note at Tasks/proj-xxx.md (no subfolder)
+  const legacyProjId = "proj-2026-01-01-legacy";
+  const legacyTaskId = "task-2026-01-01-legacyt";
+  const legacyProjFm = buildTaskFrontmatter({
+    id: legacyProjId,
+    title: "Legacy Flat Project",
+    type: "project",
+    status: "in_progress",
+    source: "test",
+  });
+  const legacyProjBody = "## Description\n\nA legacy project created in v0.3.0 (flat structure).\n\n## Sub-Tasks\n\n- [[" + legacyTaskId + "]]\n\n## Agent Log\n\n";
+  const legacyProjContent = serializeNote(
+    Object.fromEntries(Object.entries(legacyProjFm).filter(([, v]) => v !== undefined)),
+    legacyProjBody,
+  );
+  // Write at Tasks/ root (flat, no subfolder)
+  writeFileSync(join(VAULT, "Tasks", legacyProjId + "-legacy-flat-project.md"), legacyProjContent);
+
+  // Create an existing task belonging to the project, also at Tasks/ root
+  const legacyTaskFm = buildTaskFrontmatter({
+    id: legacyTaskId,
+    title: "Legacy Task One",
+    type: "code",
+    status: "pending",
+    project: legacyProjId,
+    source: "test",
+  });
+  const legacyTaskBody = "## Description\n\nExisting legacy task.\n\n## Agent Log\n\n";
+  const legacyTaskContent = serializeNote(
+    Object.fromEntries(Object.entries(legacyTaskFm).filter(([, v]) => v !== undefined)),
+    legacyTaskBody,
+  );
+  writeFileSync(join(VAULT, "Tasks", legacyTaskId + "-legacy-task-one.md"), legacyTaskContent);
+
+  // Append new tasks to the legacy project
+  const handler = createProjectHandler(vault, config);
+  const result = await handler({
+    project_id: legacyProjId,
+    tasks: [
+      { title: "New Task For Legacy", type: "code", description: "Appended to legacy flat project." },
+    ],
+    source: "test",
+  });
+  assert(!result.isError, "append to legacy flat project succeeded");
+  const data = JSON.parse(result.content[0].text);
+  assert(data.success === true, "append returns success");
+  assert(data.mode === "append", "mode is append");
+
+  // The critical assertion: new task should be at Tasks/ root (2 path parts), NOT in a subfolder
+  const newTaskPath = data.tasks[0].path;
+  const newTaskParts = newTaskPath.split("/");
+  assert(
+    newTaskParts.length === 2,
+    "appended task stays at root level for legacy flat project (2 path parts): " + newTaskPath,
+  );
+  assert(
+    !newTaskPath.includes("/legacy-flat-project/"),
+    "appended task NOT in a subfolder: " + newTaskPath,
+  );
+
+  // Verify scanTasks finds both old and new tasks for this project
+  const allTasks = await scanTasks(vault, "Tasks");
+  const projTasks = allTasks.filter(
+    (t) => t.task.project === legacyProjId && t.task.id !== legacyProjId,
+  );
+  assert(projTasks.length === 2, "legacy project now has 2 sub-tasks (1 original + 1 appended)");
+
+  // Both tasks should be at root level (not in subfolder)
+  for (const t of projTasks) {
+    const parts = t.path.split("/");
+    assert(parts.length === 2, "legacy project task at root level: " + t.path);
+  }
+}
+
 // ─── Cleanup & Report ───────────────────────────────────────────────
 
 rmSync(VAULT, { recursive: true, force: true });

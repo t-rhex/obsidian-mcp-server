@@ -221,10 +221,9 @@ export const createProjectHandler = (vault: Vault, config: Config) =>
         if (pathParts.length >= 3) {
           // Has subfolder structure — use the parent directory
           projectFolder = pathParts.slice(0, -1).join("/");
-        } else {
-          // Legacy flat structure — use the project title to build subfolder
-          projectFolder = buildProjectFolder(tasksFolder, projectEntry.task.title);
         }
+        // Legacy flat structure (pathParts.length < 3): projectFolder stays
+        // undefined, so new tasks go to tasksFolder root — same as existing tasks.
         existingProjectContent = await vault.readNote(projectEntry.path);
 
         // Validate depends_on_existing references exist in the project
