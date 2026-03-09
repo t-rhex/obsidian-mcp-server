@@ -34,7 +34,7 @@ export const updateTaskSchema = {
     "The task ID to update (e.g. 'task-2026-03-09-abc123').",
   ),
   status: z.enum([
-    "pending", "in_progress", "blocked", "cancelled",
+    "pending", "in_progress", "blocked", "cancelled", "needs_review", "revision_requested",
   ]).optional().describe(
     "New status. Use claim_task for claiming and complete_task for completing/failing.",
   ),
@@ -62,7 +62,7 @@ export const updateTaskHandler = (vault: Vault, config: Config) =>
   safeToolHandler(
     async (input: {
       task_id: string;
-      status?: "pending" | "in_progress" | "blocked" | "cancelled";
+      status?: "pending" | "in_progress" | "blocked" | "cancelled" | "needs_review" | "revision_requested";
       priority?: TaskPriority;
       type?: TaskType;
       assignee?: string;
@@ -240,7 +240,7 @@ function getValidTransitions(current: TaskStatus): TaskStatus[] {
     case "claimed":
       return ["in_progress", "pending", "blocked", "cancelled"];
     case "in_progress":
-      return ["completed", "failed", "blocked", "pending", "cancelled"];
+      return ["completed", "failed", "blocked", "pending", "cancelled", "needs_review"];
     case "blocked":
       return ["pending", "cancelled"];
     case "completed":
@@ -249,6 +249,10 @@ function getValidTransitions(current: TaskStatus): TaskStatus[] {
       return ["pending"]; // Retry
     case "cancelled":
       return ["pending"]; // Reactivate
+    case "needs_review":
+      return ["completed", "revision_requested", "pending", "cancelled"];
+    case "revision_requested":
+      return ["in_progress", "pending", "cancelled"];
     default:
       return [];
   }

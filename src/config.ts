@@ -44,6 +44,16 @@ export interface Config {
   decisionsFolder: string;
   /** Subfolder for discovery/TIL notes (relative to vault root) */
   discoveriesFolder: string;
+  /** Subfolder for agent profiles (relative to vault root) */
+  agentsFolder: string;
+  /** Subfolder for usage records (relative to vault root) */
+  usageFolder: string;
+  /** Comma-separated webhook URLs for event notifications */
+  webhookUrls: string[];
+  /** HMAC secret for signing webhook payloads */
+  webhookSecret: string;
+  /** Webhook HTTP request timeout in ms */
+  webhookTimeoutMs: number;
 }
 
 const DEFAULT_CONFIG: Omit<Config, "vaultPath"> = {
@@ -64,6 +74,11 @@ const DEFAULT_CONFIG: Omit<Config, "vaultPath"> = {
   tasksFolder: "Tasks",
   decisionsFolder: "Decisions",
   discoveriesFolder: "Discoveries",
+  agentsFolder: "Agents",
+  usageFolder: "Usage",
+  webhookUrls: [],
+  webhookSecret: "",
+  webhookTimeoutMs: 5000,
 };
 
 export function loadConfig(): Config {
@@ -141,6 +156,13 @@ export function loadConfig(): Config {
     tasksFolder: process.env.TASKS_FOLDER ?? DEFAULT_CONFIG.tasksFolder,
     decisionsFolder: process.env.DECISIONS_FOLDER ?? DEFAULT_CONFIG.decisionsFolder,
     discoveriesFolder: process.env.DISCOVERIES_FOLDER ?? DEFAULT_CONFIG.discoveriesFolder,
+    agentsFolder: process.env.AGENTS_FOLDER ?? DEFAULT_CONFIG.agentsFolder,
+    usageFolder: process.env.USAGE_FOLDER ?? DEFAULT_CONFIG.usageFolder,
+    webhookUrls: process.env.WEBHOOK_URL
+      ? process.env.WEBHOOK_URL.split(",").map((u) => u.trim()).filter(Boolean)
+      : DEFAULT_CONFIG.webhookUrls,
+    webhookSecret: process.env.WEBHOOK_SECRET ?? DEFAULT_CONFIG.webhookSecret,
+    webhookTimeoutMs: parsePositiveInt(process.env.WEBHOOK_TIMEOUT_MS, DEFAULT_CONFIG.webhookTimeoutMs),
   };
 }
 

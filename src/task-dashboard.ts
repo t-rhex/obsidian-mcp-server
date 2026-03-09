@@ -73,9 +73,10 @@ export function generateDashboard(tasks: TaskEntry[]): string {
   lines.push(`> Auto-generated on ${now}. Do not edit manually.`);
   lines.push("");
 
-  // Summary table
+  // Summary table — exclude project containers from task counts
+  const actionableTasks = tasks.filter((t) => t.task.type !== "project");
   const statusCounts: Record<string, number> = {};
-  for (const entry of tasks) {
+  for (const entry of actionableTasks) {
     statusCounts[entry.task.status] = (statusCounts[entry.task.status] ?? 0) + 1;
   }
 
@@ -85,7 +86,8 @@ export function generateDashboard(tasks: TaskEntry[]): string {
   lines.push("|--------|-------|");
 
   const statusOrder: TaskStatus[] = [
-    "in_progress", "claimed", "pending", "blocked", "completed", "failed", "cancelled",
+    "in_progress", "claimed", "pending", "needs_review", "revision_requested",
+    "blocked", "completed", "failed", "cancelled",
   ];
   for (const status of statusOrder) {
     const count = statusCounts[status] ?? 0;
@@ -93,7 +95,7 @@ export function generateDashboard(tasks: TaskEntry[]): string {
       lines.push(`| ${status} | ${count} |`);
     }
   }
-  lines.push(`| **Total** | **${tasks.length}** |`);
+  lines.push(`| **Total** | **${actionableTasks.length}** |`);
   lines.push("");
 
   // Projects section
@@ -134,6 +136,42 @@ export function generateDashboard(tasks: TaskEntry[]): string {
     lines.push("");
   }
 
+  // Needs Review tasks
+  const needsReview = tasks
+    .filter((t) => t.task.status === "needs_review" && t.task.type !== "project")
+    .sort(sortByPriority);
+
+  if (needsReview.length > 0) {
+    lines.push("## Needs Review");
+    lines.push("");
+    for (const entry of needsReview) {
+      const reviewer = entry.task.reviewer ? ` (reviewer: ${entry.task.reviewer})` : "";
+      const pathNoExt = entry.path.replace(/\.md$/, "");
+      lines.push(
+        `- [[${pathNoExt}|${entry.task.title}]] — ${entry.task.priority}${reviewer}`,
+      );
+    }
+    lines.push("");
+  }
+
+  // Revision Requested tasks
+  const revisionRequested = tasks
+    .filter((t) => t.task.status === "revision_requested" && t.task.type !== "project")
+    .sort(sortByPriority);
+
+  if (revisionRequested.length > 0) {
+    lines.push("## Revision Requested");
+    lines.push("");
+    for (const entry of revisionRequested) {
+      const assignee = entry.task.assignee ? ` (${entry.task.assignee})` : "";
+      const pathNoExt = entry.path.replace(/\.md$/, "");
+      lines.push(
+        `- [[${pathNoExt}|${entry.task.title}]] — ${entry.task.priority}${assignee}`,
+      );
+    }
+    lines.push("");
+  }
+
   // Pending tasks
   const pending = tasks
     .filter((t) => t.task.status === "pending")
@@ -144,8 +182,13 @@ export function generateDashboard(tasks: TaskEntry[]): string {
     lines.push("");
     for (const entry of pending) {
       const due = entry.task.due ? ` (due: ${entry.task.due})` : "";
-      const deps = entry.task.depends_on.length > 0
-        ? ` [blocked by: ${entry.task.depends_on.join(", ")}]`
+      // Only show depends_on for deps that are NOT completed (actual blockers)
+      const unfinishedDeps = entry.task.depends_on.filter((depId) => {
+        const dep = tasks.find((t) => t.task.id === depId);
+        return !dep || dep.task.status !== "completed";
+      });
+      const deps = unfinishedDeps.length > 0
+        ? ` [waiting on: ${unfinishedDeps.join(", ")}]`
         : "";
       const pathNoExt = entry.path.replace(/\.md$/, "");
       lines.push(

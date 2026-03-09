@@ -27,6 +27,14 @@ const { completeTaskHandler, completeTaskSchema } = await import("../build/tools
 const { getContextHandler } = await import("../build/tools/get-context.js");
 const { logDecisionHandler } = await import("../build/tools/log-decision.js");
 const { logDiscoveryHandler } = await import("../build/tools/log-discovery.js");
+const { reviewTaskHandler } = await import("../build/tools/review-task.js");
+const { registerAgentHandler } = await import("../build/tools/register-agent.js");
+const { listAgentsHandler } = await import("../build/tools/list-agents.js");
+const { suggestAssigneeHandler } = await import("../build/tools/suggest-assignee.js");
+const { checkTimeoutsHandler } = await import("../build/tools/check-timeouts.js");
+const { logUsageHandler } = await import("../build/tools/log-usage.js");
+const { getUsageReportHandler } = await import("../build/tools/get-usage-report.js");
+const { EventBus } = await import("../build/events.js");
 
 // ─── Setup ──────────────────────────────────────────────────────────
 
@@ -835,6 +843,129 @@ section("Project Tools — dashboard includes projects section");
   assert(dashboard.includes("Auth Rewrite"), "dashboard shows project name");
 }
 
+// ─── Append Mode Tests ──────────────────────────────────────────────
+
+let appendedTaskIds;
+
+section("Project Tools — create_project append mode");
+{
+  // Get an existing task ID from the project for depends_on_existing
+  const listHandler = listTasksHandler(vault, config);
+  const listResult = await listHandler({ project: projectId, status: "all" });
+  const listData = JSON.parse(listResult.content[0].text);
+  const existingTaskId = listData.tasks[0].id;
+
+  const handler = createProjectHandler(vault, config);
+  const result = await handler({
+    project_id: projectId,
+    tasks: [
+      { title: "Add rate limiting", type: "code", description: "Implement rate limiting on auth endpoints." },
+      { title: "Security audit", type: "research", depends_on_indices: [0], description: "Audit the new auth flow." },
+      { title: "Load testing", type: "code", depends_on_existing: [existingTaskId], description: "Load test the auth endpoints." },
+    ],
+    source: "test",
+  });
+  assert(!result.isError, "append mode succeeded");
+  const data = JSON.parse(result.content[0].text);
+  assert(data.success === true, "append returns success");
+  assert(data.mode === "append", "mode is append");
+  assert(data.project.id === projectId, "same project ID");
+  assert(data.tasks.length === 3, "3 new tasks created");
+  assert(data.summary.pending === 1, "1 task immediately claimable");
+  assert(data.summary.blocked === 2, "2 tasks blocked");
+  assert(data.dashboard_refreshed === true, "dashboard refreshed after append");
+
+  // Verify the new tasks belong to the project
+  const rateLimitTask = data.tasks.find((t) => t.title === "Add rate limiting");
+  assert(rateLimitTask.status === "pending", "rate limiting task is pending (no deps)");
+
+  const auditTask = data.tasks.find((t) => t.title === "Security audit");
+  assert(auditTask.status === "blocked", "audit task is blocked (depends on rate limiting)");
+
+  const loadTestTask = data.tasks.find((t) => t.title === "Load testing");
+  assert(loadTestTask.status === "blocked", "load test task is blocked (depends_on_existing)");
+
+  appendedTaskIds = data.tasks.map((t) => t.id);
+}
+
+section("Project Tools — append mode updates project note Sub-Tasks");
+{
+  // Read the project note and verify it has the new tasks listed
+  const listHandler = listTasksHandler(vault, config);
+  const listResult = await listHandler({ project: projectId, status: "all" });
+  const listData = JSON.parse(listResult.content[0].text);
+
+  // Original 4 + new 3 = 7 total tasks in the project
+  assert(listData.total === 7, "project now has 7 sub-tasks after append");
+
+  // Verify new tasks have correct project field
+  for (const tid of appendedTaskIds) {
+    const task = listData.tasks.find((t) => t.id === tid);
+    assert(task, `appended task ${tid} exists in project listing`);
+    assert(task.project === projectId, `appended task ${tid} belongs to project`);
+  }
+}
+
+section("Project Tools — append mode get_project_status reflects new tasks");
+{
+  const handler = getProjectStatusHandler(vault, config);
+  const result = await handler({ project_id: projectId });
+  const data = JSON.parse(result.content[0].text);
+
+  assert(data.progress.total === 7, "project status shows 7 total tasks");
+  assert(data.tasks.length === 7, "project status lists all 7 tasks");
+}
+
+section("Project Tools — append mode with nonexistent project fails");
+{
+  const handler = createProjectHandler(vault, config);
+  const result = await handler({
+    project_id: "proj-nonexistent-fake",
+    tasks: [{ title: "Orphan task" }],
+    source: "test",
+  });
+  assert(result.isError === true, "append to nonexistent project fails");
+  const data = JSON.parse(result.content[0].text);
+  assert(data.error === "PROJECT_NOT_FOUND", "correct error code for missing project");
+}
+
+section("Project Tools — append mode with invalid depends_on_existing fails");
+{
+  const handler = createProjectHandler(vault, config);
+  const result = await handler({
+    project_id: projectId,
+    tasks: [{ title: "Bad dep task", depends_on_existing: ["task-fake-nonexistent"] }],
+    source: "test",
+  });
+  assert(result.isError === true, "invalid depends_on_existing fails");
+  const data = JSON.parse(result.content[0].text);
+  assert(data.error === "INVALID_EXISTING_DEPENDENCY", "correct error code for invalid existing dep");
+}
+
+section("Project Tools — new project requires title and description");
+{
+  const handler = createProjectHandler(vault, config);
+
+  // Missing title
+  const noTitle = await handler({
+    tasks: [{ title: "Some task" }],
+    source: "test",
+  });
+  assert(noTitle.isError === true, "missing title returns error");
+  const titleErr = JSON.parse(noTitle.content[0].text);
+  assert(titleErr.error === "MISSING_TITLE", "correct error for missing title");
+
+  // Missing description
+  const noDesc = await handler({
+    title: "Has Title",
+    tasks: [{ title: "Some task" }],
+    source: "test",
+  });
+  assert(noDesc.isError === true, "missing description returns error");
+  const descErr = JSON.parse(noDesc.content[0].text);
+  assert(descErr.error === "MISSING_DESCRIPTION", "correct error for missing description");
+}
+
 section("Task Config — TASKS_FOLDER env var");
 {
   process.env.TASKS_FOLDER = "MyTasks";
@@ -1057,6 +1188,506 @@ section("MCP Prompts — registration");
   else delete process.env.DECISIONS_FOLDER;
   if (origDiscoveries) process.env.DISCOVERIES_FOLDER = origDiscoveries;
   else delete process.env.DISCOVERIES_FOLDER;
+}
+
+// ─── Feature: Event System ──────────────────────────────────────────
+
+section("Event System — EventBus emits typed events");
+{
+  const bus = new EventBus();
+  const events = [];
+  bus.onEvent((e) => events.push(e));
+  bus.emitEvent("task.created", { task_id: "test-1", title: "Test" });
+  assert(events.length === 1, "event received");
+  assert(events[0].event === "task.created", "event type correct");
+  assert(events[0].task_id === "test-1", "event data correct");
+  assert(events[0].timestamp, "event has timestamp");
+}
+
+section("Event System — EventBus typed listener");
+{
+  const bus = new EventBus();
+  const specific = [];
+  bus.onEventType("task.completed", (e) => specific.push(e));
+  bus.emitEvent("task.created", { task_id: "a" });
+  bus.emitEvent("task.completed", { task_id: "b" });
+  assert(specific.length === 1, "only matching events received");
+  assert(specific[0].task_id === "b", "correct event received");
+}
+
+// ─── Feature: HITL / Approval Gates ─────────────────────────────────
+
+let reviewTaskId;
+
+section("HITL — create task with review_required");
+{
+  const handler = createTaskHandler(vault, config);
+  const result = await handler({
+    title: "Security patch",
+    description: "Fix critical vulnerability",
+    review_required: true,
+    risk_level: "high",
+    priority: "critical",
+    source: "test",
+  });
+  const data = JSON.parse(result.content[0].text);
+  assert(data.success === true, "task created with review_required");
+  reviewTaskId = data.task.id;
+}
+
+section("HITL — complete_task redirects to needs_review");
+{
+  // Claim and work on the task
+  const claimH = claimTaskHandler(vault, config);
+  await claimH({ task_id: reviewTaskId, assignee: "agent-review" });
+  const updateH = updateTaskHandler(vault, config);
+  await updateH({ task_id: reviewTaskId, status: "in_progress" });
+
+  // Complete — should redirect to needs_review
+  const completeH = completeTaskHandler(vault, config);
+  const result = await completeH({
+    task_id: reviewTaskId,
+    summary: "Vulnerability patched.",
+    deliverables: ["src/security.ts"],
+  });
+  const data = JSON.parse(result.content[0].text);
+  assert(data.success === true, "complete_task succeeded");
+  assert(data.status === "needs_review", "redirected to needs_review");
+  assert(data.review_redirected === true, "review_redirected flag set");
+}
+
+section("HITL — review_task reject");
+{
+  const handler = reviewTaskHandler(vault, config);
+  const result = await handler({
+    task_id: reviewTaskId,
+    action: "reject",
+    feedback: "Need more test coverage before approving.",
+    reviewer: "human-lead",
+  });
+  const data = JSON.parse(result.content[0].text);
+  assert(data.success === true, "review reject succeeded");
+  assert(data.status === "revision_requested", "status is revision_requested");
+  assert(data.action === "reject", "action recorded");
+}
+
+section("HITL — revision requested task can go back to in_progress");
+{
+  const handler = updateTaskHandler(vault, config);
+  const result = await handler({ task_id: reviewTaskId, status: "in_progress" });
+  const data = JSON.parse(result.content[0].text);
+  assert(data.success === true, "revision_requested -> in_progress works");
+}
+
+section("HITL — re-complete and approve");
+{
+  // Complete again (still has review_required)
+  const completeH = completeTaskHandler(vault, config);
+  await completeH({ task_id: reviewTaskId, summary: "Added tests, ready for re-review." });
+
+  // Now approve
+  const reviewH = reviewTaskHandler(vault, config);
+  const result = await reviewH({
+    task_id: reviewTaskId,
+    action: "approve",
+    feedback: "Looks good now.",
+    reviewer: "human-lead",
+  });
+  const data = JSON.parse(result.content[0].text);
+  assert(data.success === true, "review approve succeeded");
+  assert(data.status === "completed", "status is completed after approval");
+}
+
+section("HITL — review non-review task fails");
+{
+  // Create a normal task
+  const createH = createTaskHandler(vault, config);
+  const createRes = await createH({ title: "Normal task", description: "No review", source: "test" });
+  const normalId = JSON.parse(createRes.content[0].text).task.id;
+
+  const handler = reviewTaskHandler(vault, config);
+  const result = await handler({ task_id: normalId, action: "approve" });
+  assert(result.isError === true, "reviewing non-review task fails");
+  const data = JSON.parse(result.content[0].text);
+  assert(data.error === "TASK_NOT_IN_REVIEW", "correct error code");
+}
+
+section("HITL — review_task reject requires feedback");
+{
+  // Create and push to needs_review
+  const createH = createTaskHandler(vault, config);
+  const createRes = await createH({
+    title: "Feedback required test",
+    description: "test",
+    review_required: true,
+    source: "test",
+  });
+  const tid = JSON.parse(createRes.content[0].text).task.id;
+  const claimH = claimTaskHandler(vault, config);
+  await claimH({ task_id: tid, assignee: "test-agent" });
+  const updateH = updateTaskHandler(vault, config);
+  await updateH({ task_id: tid, status: "in_progress" });
+  const completeH = completeTaskHandler(vault, config);
+  await completeH({ task_id: tid, summary: "Done" });
+
+  const handler = reviewTaskHandler(vault, config);
+  const result = await handler({ task_id: tid, action: "request_changes" });
+  assert(result.isError === true, "reject without feedback fails");
+  const data = JSON.parse(result.content[0].text);
+  assert(data.error === "FEEDBACK_REQUIRED", "correct error for missing feedback");
+}
+
+// ─── Feature: Agent Registry ────────────────────────────────────────
+
+section("Agent Registry — register_agent");
+{
+  const handler = registerAgentHandler(vault, config);
+  const result = await handler({
+    agent_id: "agent-coder-1",
+    capabilities: ["code", "research"],
+    tags: ["typescript", "react", "api"],
+    max_concurrent: 5,
+    model: "claude-sonnet-4",
+    description: "TypeScript specialist",
+  });
+  const data = JSON.parse(result.content[0].text);
+  assert(data.success === true, "register_agent succeeded");
+  assert(data.action === "created", "agent was created");
+  assert(data.agent.id === "agent-coder-1", "agent ID correct");
+  assert(data.agent.capabilities.includes("code"), "capabilities stored");
+}
+
+section("Agent Registry — register_agent update existing");
+{
+  const handler = registerAgentHandler(vault, config);
+  const result = await handler({
+    agent_id: "agent-coder-1",
+    max_concurrent: 10,
+  });
+  const data = JSON.parse(result.content[0].text);
+  assert(data.success === true, "update succeeded");
+  assert(data.action === "updated", "agent was updated");
+}
+
+section("Agent Registry — register second agent");
+{
+  const handler = registerAgentHandler(vault, config);
+  await handler({
+    agent_id: "agent-writer-1",
+    capabilities: ["writing", "research"],
+    tags: ["docs", "api"],
+    model: "claude-sonnet-4",
+  });
+}
+
+section("Agent Registry — list_agents");
+{
+  const handler = listAgentsHandler(vault, config);
+  const result = await handler({});
+  const data = JSON.parse(result.content[0].text);
+  assert(data.total >= 2, "at least 2 agents listed");
+}
+
+section("Agent Registry — list_agents with capability filter");
+{
+  const handler = listAgentsHandler(vault, config);
+  const result = await handler({ capability: "writing" });
+  const data = JSON.parse(result.content[0].text);
+  assert(data.agents.every((a) => a.capabilities.includes("writing")), "capability filter works");
+}
+
+section("Agent Registry — list_agents available_only");
+{
+  const handler = listAgentsHandler(vault, config);
+  const result = await handler({ available_only: true });
+  const data = JSON.parse(result.content[0].text);
+  assert(data.agents.every((a) => a.current_tasks < a.max_concurrent), "available_only filter works");
+}
+
+section("Agent Registry — suggest_assignee");
+{
+  // Create a code task with typescript tag
+  const createH = createTaskHandler(vault, config);
+  const createRes = await createH({
+    title: "Build API endpoint",
+    description: "Create REST endpoint",
+    type: "code",
+    tags: ["typescript", "api"],
+    source: "test",
+  });
+  const tid = JSON.parse(createRes.content[0].text).task.id;
+
+  const handler = suggestAssigneeHandler(vault, config);
+  const result = await handler({ task_id: tid });
+  const data = JSON.parse(result.content[0].text);
+  assert(data.suggestions.length > 0, "suggestions returned");
+  assert(data.suggestions[0].agent_id === "agent-coder-1", "best match is the coder agent");
+}
+
+section("Agent Registry — suggest_assignee nonexistent task");
+{
+  const handler = suggestAssigneeHandler(vault, config);
+  const result = await handler({ task_id: "task-nonexistent" });
+  assert(result.isError === true, "nonexistent task returns error");
+}
+
+// ─── Feature: Retry & Escalation ────────────────────────────────────
+
+section("Retry — create task with max_retries");
+{
+  const handler = createTaskHandler(vault, config);
+  const result = await handler({
+    title: "Flaky deploy",
+    description: "Deploy that sometimes fails",
+    max_retries: 3,
+    retry_delay_minutes: 1,
+    escalate_to: "human",
+    source: "test",
+  });
+  const data = JSON.parse(result.content[0].text);
+  assert(data.success === true, "task with retry policy created");
+}
+
+let retryTaskId;
+
+section("Retry — check_timeouts with overdue task");
+{
+  // Create a task, claim it, and backdate claimed_at to simulate timeout
+  const createH = createTaskHandler(vault, config);
+  const createRes = await createH({
+    title: "Stuck task",
+    description: "Will time out",
+    timeout_minutes: 1,
+    source: "test",
+  });
+  retryTaskId = JSON.parse(createRes.content[0].text).task.id;
+
+  // Claim it
+  const claimH = claimTaskHandler(vault, config);
+  await claimH({ task_id: retryTaskId, assignee: "stuck-agent" });
+
+  // Backdate claimed_at by 2 hours to simulate timeout
+  const allTasks = await scanTasks(vault, "Tasks");
+  const entry = allTasks.find((t) => t.task.id === retryTaskId);
+  const raw = (await import("node:fs/promises")).readFile;
+  const content = await raw(join(VAULT, entry.path), "utf-8");
+  const backdated = content.replace(
+    /claimed_at: .*/,
+    `claimed_at: "${new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString()}"`,
+  );
+  const { writeFile } = await import("node:fs/promises");
+  await writeFile(join(VAULT, entry.path), backdated, "utf-8");
+
+  // Run check_timeouts
+  const handler = checkTimeoutsHandler(vault, config);
+  const result = await handler({ dry_run: false });
+  const data = JSON.parse(result.content[0].text);
+  assert(data.timed_out.length >= 1, "timed out task detected");
+  assert(data.timed_out.some((t) => t.task_id === retryTaskId), "correct task timed out");
+}
+
+section("Retry — check_timeouts dry_run");
+{
+  const handler = checkTimeoutsHandler(vault, config);
+  const result = await handler({ dry_run: true });
+  const data = JSON.parse(result.content[0].text);
+  assert(data.dry_run === true, "dry_run flag in response");
+}
+
+// ─── Feature: Conditional Workflows ─────────────────────────────────
+
+section("Conditional Workflows — routing_rules on complete");
+{
+  // Create a project with conditional branching
+  const createProjH = createProjectHandler(vault, config);
+  const projResult = await createProjH({
+    title: "Conditional Pipeline",
+    description: "Test routing rules",
+    tasks: [
+      {
+        title: "Run tests",
+        type: "code",
+        routing_rules: [
+          { condition: "output_contains", value: "all tests passed", activate: ["idx:1"] },
+          { condition: "output_contains", value: "tests failed", activate: ["idx:2"], deactivate: ["idx:1"] },
+        ],
+      },
+      { title: "Deploy to staging", depends_on_indices: [0] },
+      { title: "Fix failing tests", depends_on_indices: [0] },
+    ],
+    source: "test",
+  });
+  const projData = JSON.parse(projResult.content[0].text);
+  const runTestsId = projData.tasks[0].id;
+  const deployId = projData.tasks[1].id;
+  const fixTestsId = projData.tasks[2].id;
+
+  // Verify that create_project resolved idx:N references to real task IDs
+  const allTasks = await scanTasks(vault, "Tasks");
+  const runTestsEntry = allTasks.find((t) => t.task.id === runTestsId);
+  assert(runTestsEntry.task.routing_rules, "routing_rules stored on task");
+  assert(runTestsEntry.task.routing_rules.length === 2, "two routing rules");
+  assert(
+    runTestsEntry.task.routing_rules[0].activate.includes(deployId),
+    "idx:1 resolved to deploy task ID in activate",
+  );
+  assert(
+    runTestsEntry.task.routing_rules[1].activate.includes(fixTestsId),
+    "idx:2 resolved to fix-tests task ID in activate",
+  );
+  assert(
+    runTestsEntry.task.routing_rules[1].deactivate.includes(deployId),
+    "idx:1 resolved to deploy task ID in deactivate",
+  );
+
+  // Claim and complete "Run tests" with "all tests passed"
+  const claimH = claimTaskHandler(vault, config);
+  await claimH({ task_id: runTestsId, assignee: "test-agent" });
+  const updateH = updateTaskHandler(vault, config);
+  await updateH({ task_id: runTestsId, status: "in_progress" });
+  const completeH = completeTaskHandler(vault, config);
+  const completeResult = await completeH({
+    task_id: runTestsId,
+    summary: "all tests passed successfully",
+  });
+  const completeData = JSON.parse(completeResult.content[0].text);
+
+  // Deploy should be unblocked, fix tests should NOT be unblocked
+  assert(completeData.unblocked_tasks.includes(deployId), "deploy task unblocked by routing");
+  assert(!completeData.unblocked_tasks.includes(fixTestsId), "fix tests task NOT unblocked");
+}
+
+// ─── Feature: Token/Cost Tracking ───────────────────────────────────
+
+section("Usage Tracking — log_usage");
+{
+  const handler = logUsageHandler(vault, config);
+  const result = await handler({
+    agent_id: "agent-coder-1",
+    input_tokens: 15000,
+    output_tokens: 3000,
+    model: "claude-sonnet-4",
+    cost_usd: 0.042,
+    duration_seconds: 30,
+    notes: "Implemented auth module",
+  });
+  const data = JSON.parse(result.content[0].text);
+  assert(data.success === true, "log_usage succeeded");
+  assert(data.usage.id.startsWith("usage-"), "usage ID generated");
+  assert(data.usage.input_tokens === 15000, "input tokens recorded");
+}
+
+section("Usage Tracking — log_usage with task_id");
+{
+  const handler = logUsageHandler(vault, config);
+  const result = await handler({
+    agent_id: "agent-coder-1",
+    task_id: reviewTaskId,
+    input_tokens: 5000,
+    output_tokens: 1000,
+    model: "claude-sonnet-4",
+  });
+  const data = JSON.parse(result.content[0].text);
+  assert(data.success === true, "log_usage with task succeeded");
+}
+
+section("Usage Tracking — get_usage_report");
+{
+  const handler = getUsageReportHandler(vault, config);
+  const result = await handler({});
+  const data = JSON.parse(result.content[0].text);
+  const report = data.report;
+  assert(report.total_input_tokens >= 20000, "aggregated input tokens");
+  assert(report.total_output_tokens >= 4000, "aggregated output tokens");
+  assert(report.record_count >= 2, "at least 2 records");
+  assert(report.by_agent && Object.keys(report.by_agent).length > 0, "by_agent grouping exists");
+}
+
+section("Usage Tracking — get_usage_report with agent filter");
+{
+  const handler = getUsageReportHandler(vault, config);
+  const result = await handler({ agent_id: "agent-coder-1" });
+  const data = JSON.parse(result.content[0].text);
+  assert(data.report.record_count >= 2, "agent filter returns correct count");
+}
+
+// ─── Feature: Dashboard includes new statuses ───────────────────────
+
+section("Dashboard — includes needs_review and revision sections");
+{
+  const tasks = await scanTasks(vault, "Tasks");
+  const dashboard = generateDashboard(tasks);
+  // The dashboard should have at least the standard sections
+  assert(dashboard.includes("# Task Dashboard"), "dashboard has title");
+  assert(dashboard.includes("## Summary"), "dashboard has summary");
+}
+
+// ─── Config: new env vars ───────────────────────────────────────────
+
+section("Config — AGENTS_FOLDER and USAGE_FOLDER env vars");
+{
+  process.env.AGENTS_FOLDER = "MyAgents";
+  process.env.USAGE_FOLDER = "MyUsage";
+  const customConfig = loadConfig();
+  assert(customConfig.agentsFolder === "MyAgents", "AGENTS_FOLDER env var respected");
+  assert(customConfig.usageFolder === "MyUsage", "USAGE_FOLDER env var respected");
+  delete process.env.AGENTS_FOLDER;
+  delete process.env.USAGE_FOLDER;
+
+  const defaultConfig = loadConfig();
+  assert(defaultConfig.agentsFolder === "Agents", "default agentsFolder is Agents");
+  assert(defaultConfig.usageFolder === "Usage", "default usageFolder is Usage");
+}
+
+section("Config — WEBHOOK_URL parsing");
+{
+  process.env.WEBHOOK_URL = "https://hooks.example.com/a, https://hooks.example.com/b";
+  const customConfig = loadConfig();
+  assert(customConfig.webhookUrls.length === 2, "WEBHOOK_URL parsed into array");
+  assert(customConfig.webhookUrls[0] === "https://hooks.example.com/a", "first URL correct");
+  assert(customConfig.webhookUrls[1] === "https://hooks.example.com/b", "second URL correct");
+  delete process.env.WEBHOOK_URL;
+}
+
+// ─── Schema: new fields in parseTaskFrontmatter ─────────────────────
+
+section("Task Schema — new fields parse correctly");
+{
+  const fm = {
+    id: "task-test-new",
+    title: "Test",
+    status: "pending",
+    review_required: true,
+    risk_level: "high",
+    max_retries: 3,
+    retry_delay_minutes: 10,
+    escalate_to: "human",
+    escalation_status: "none",
+    review_count: 2,
+    routing_rules: [
+      { condition: "output_contains", value: "pass", activate: ["task-a"] },
+    ],
+  };
+  const parsed = parseTaskFrontmatter(fm);
+  assert(parsed.review_required === true, "review_required parsed");
+  assert(parsed.risk_level === "high", "risk_level parsed");
+  assert(parsed.max_retries === 3, "max_retries parsed");
+  assert(parsed.retry_delay_minutes === 10, "retry_delay_minutes parsed");
+  assert(parsed.escalate_to === "human", "escalate_to parsed");
+  assert(parsed.review_count === 2, "review_count parsed");
+  assert(parsed.routing_rules.length === 1, "routing_rules parsed");
+  assert(parsed.routing_rules[0].condition === "output_contains", "routing rule condition");
+}
+
+section("Task Schema — new fields defaults");
+{
+  const fm = { id: "task-minimal", status: "pending" };
+  const parsed = parseTaskFrontmatter(fm);
+  assert(parsed.max_retries === 0, "max_retries defaults to 0");
+  assert(parsed.retry_delay_minutes === 5, "retry_delay_minutes defaults to 5");
+  assert(parsed.escalation_status === "none", "escalation_status defaults to none");
+  assert(parsed.review_count === 0, "review_count defaults to 0");
+  assert(parsed.review_required === undefined, "review_required defaults to undefined");
 }
 
 // ─── Cleanup & Report ───────────────────────────────────────────────

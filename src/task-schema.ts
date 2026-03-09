@@ -14,11 +14,22 @@ export type TaskStatus =
   | "completed"
   | "failed"
   | "blocked"
-  | "cancelled";
+  | "cancelled"
+  | "needs_review"
+  | "revision_requested";
 
 export type TaskPriority = "critical" | "high" | "medium" | "low";
 
 export type TaskType = "code" | "research" | "writing" | "maintenance" | "project" | "other";
+
+export type RiskLevel = "low" | "medium" | "high" | "critical";
+
+export interface RoutingRule {
+  condition: "output_contains" | "output_matches" | "status_is";
+  value: string;
+  activate: string[];
+  deactivate?: string[];
+}
 
 export interface TaskFrontmatter {
   id: string;
@@ -41,10 +52,24 @@ export interface TaskFrontmatter {
   context_notes: string[];
   timeout_minutes: number;
   tags: string[];
+  // ─── HITL / Review fields ─────────────────────────────────────
+  review_required?: boolean;
+  reviewer?: string;
+  feedback?: string;
+  review_count: number;
+  risk_level?: RiskLevel;
+  // ─── Retry / Escalation fields ────────────────────────────────
+  max_retries: number;
+  retry_delay_minutes: number;
+  escalate_to?: string;
+  escalation_status: "none" | "escalated";
+  // ─── Conditional workflow fields ──────────────────────────────
+  routing_rules?: RoutingRule[];
 }
 
 export const VALID_STATUSES: TaskStatus[] = [
   "pending", "claimed", "in_progress", "completed", "failed", "blocked", "cancelled",
+  "needs_review", "revision_requested",
 ];
 
 export const VALID_PRIORITIES: TaskPriority[] = [
@@ -127,6 +152,19 @@ export function buildTaskFrontmatter(
     context_notes: overrides.context_notes ?? [],
     timeout_minutes: overrides.timeout_minutes ?? 60,
     tags: overrides.tags ?? [],
+    // HITL
+    review_required: overrides.review_required,
+    reviewer: overrides.reviewer,
+    feedback: overrides.feedback,
+    review_count: overrides.review_count ?? 0,
+    risk_level: overrides.risk_level,
+    // Retry / Escalation
+    max_retries: overrides.max_retries ?? 0,
+    retry_delay_minutes: overrides.retry_delay_minutes ?? 5,
+    escalate_to: overrides.escalate_to,
+    escalation_status: overrides.escalation_status ?? "none",
+    // Conditional workflows
+    routing_rules: overrides.routing_rules,
   };
 }
 
@@ -176,6 +214,28 @@ export function parseTaskFrontmatter(
     tags: Array.isArray(fm.tags)
       ? fm.tags.filter((t): t is string => typeof t === "string")
       : [],
+    // HITL
+    review_required: fm.review_required === true ? true : undefined,
+    reviewer: fm.reviewer ? String(fm.reviewer) : undefined,
+    feedback: fm.feedback ? String(fm.feedback) : undefined,
+    review_count: typeof fm.review_count === "number" ? fm.review_count : 0,
+    risk_level: (["low", "medium", "high", "critical"].includes(fm.risk_level as string)
+      ? fm.risk_level
+      : undefined) as RiskLevel | undefined,
+    // Retry / Escalation
+    max_retries: typeof fm.max_retries === "number" ? fm.max_retries : 0,
+    retry_delay_minutes: typeof fm.retry_delay_minutes === "number" ? fm.retry_delay_minutes : 5,
+    escalate_to: fm.escalate_to ? String(fm.escalate_to) : undefined,
+    escalation_status: (["none", "escalated"].includes(fm.escalation_status as string)
+      ? fm.escalation_status
+      : "none") as "none" | "escalated",
+    // Conditional workflows
+    routing_rules: Array.isArray(fm.routing_rules)
+      ? fm.routing_rules.filter(
+          (r): r is RoutingRule =>
+            typeof r === "object" && r !== null && "condition" in r && "value" in r && "activate" in r,
+        )
+      : undefined,
   };
 }
 

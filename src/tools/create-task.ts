@@ -17,6 +17,8 @@ import {
   nowISO,
   TaskPriority,
   TaskType,
+  RiskLevel,
+  RoutingRule,
 } from "../task-schema.js";
 import { refreshDashboard } from "../task-dashboard.js";
 
@@ -49,6 +51,9 @@ export const createTaskSchema = {
   source: z.string().optional().default("manual").describe(
     "Where this task came from (e.g. 'manual', 'github-issue-42', 'agent-spawned').",
   ),
+  project: z.string().optional().describe(
+    "Project ID to attach this task to (e.g. 'proj-2026-03-09-abc123'). Task will appear in get_project_status rollups.",
+  ),
   parent_task: z.string().optional().describe(
     "ID of the parent task, if this is a sub-task.",
   ),
@@ -60,6 +65,32 @@ export const createTaskSchema = {
   ),
   assignee: z.string().optional().describe(
     "Optionally pre-assign to a specific agent.",
+  ),
+  review_required: z.boolean().optional().describe(
+    "If true, complete_task sends to needs_review instead of completed. Human must approve.",
+  ),
+  reviewer: z.string().optional().describe(
+    "Who should review this task (optional).",
+  ),
+  risk_level: z.enum(["low", "medium", "high", "critical"]).optional().describe(
+    "Risk level. High/critical tasks auto-require review on completion.",
+  ),
+  max_retries: z.number().optional().default(0).describe(
+    "Max auto-retries on failure. 0 = no auto-retry (default).",
+  ),
+  retry_delay_minutes: z.number().optional().default(5).describe(
+    "Minutes to wait between retries. Default: 5.",
+  ),
+  escalate_to: z.string().optional().describe(
+    "Agent ID or 'human' to escalate to after max_retries exhausted.",
+  ),
+  routing_rules: z.array(z.object({
+    condition: z.enum(["output_contains", "output_matches", "status_is"]),
+    value: z.string(),
+    activate: z.array(z.string()),
+    deactivate: z.array(z.string()).optional(),
+  })).optional().describe(
+    "Conditional workflow rules. When this task completes, evaluate rules against output to selectively unblock/cancel dependents.",
   ),
 };
 
@@ -76,10 +107,18 @@ export const createTaskHandler = (vault: Vault, config: Config) =>
       scope?: string[];
       acceptance_criteria?: string[];
       source?: string;
+      project?: string;
       parent_task?: string;
       timeout_minutes?: number;
       tags?: string[];
       assignee?: string;
+      review_required?: boolean;
+      reviewer?: string;
+      risk_level?: RiskLevel;
+      max_retries?: number;
+      retry_delay_minutes?: number;
+      escalate_to?: string;
+      routing_rules?: RoutingRule[];
     }) => {
       const tasksFolder = config.tasksFolder;
 
@@ -107,13 +146,24 @@ export const createTaskHandler = (vault: Vault, config: Config) =>
         context_notes: input.context_notes,
         scope: input.scope,
         source: input.source,
-        parent_task: input.parent_task,
+        project: input.project,
+        parent_task: input.parent_task ?? input.project,
         timeout_minutes: input.timeout_minutes,
         tags: input.tags,
         assignee: input.assignee,
         // Dependencies take precedence: blocked > claimed > pending
         status: input.depends_on?.length ? "blocked" : (isClaimed ? "claimed" : "pending"),
         claimed_at: isClaimed ? nowISO() : undefined,
+        // HITL
+        review_required: input.review_required,
+        reviewer: input.reviewer,
+        risk_level: input.risk_level,
+        // Retry / Escalation
+        max_retries: input.max_retries,
+        retry_delay_minutes: input.retry_delay_minutes,
+        escalate_to: input.escalate_to,
+        // Conditional workflows
+        routing_rules: input.routing_rules,
       });
 
       // Build body
