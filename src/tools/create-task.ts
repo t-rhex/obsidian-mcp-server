@@ -14,6 +14,7 @@ import {
   buildTaskFrontmatter,
   buildTaskBody,
   buildTaskPath,
+  nowISO,
   TaskPriority,
   TaskType,
 } from "../task-schema.js";
@@ -96,6 +97,7 @@ export const createTaskHandler = (vault: Vault, config: Config) =>
       }
 
       // Build frontmatter
+      const isClaimed = !input.depends_on?.length && !!input.assignee;
       const fm = buildTaskFrontmatter({
         title: input.title,
         priority: input.priority,
@@ -110,7 +112,8 @@ export const createTaskHandler = (vault: Vault, config: Config) =>
         tags: input.tags,
         assignee: input.assignee,
         // Dependencies take precedence: blocked > claimed > pending
-        status: input.depends_on?.length ? "blocked" : (input.assignee ? "claimed" : "pending"),
+        status: input.depends_on?.length ? "blocked" : (isClaimed ? "claimed" : "pending"),
+        claimed_at: isClaimed ? nowISO() : undefined,
       });
 
       // Build body

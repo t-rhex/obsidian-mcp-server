@@ -427,8 +427,8 @@ status: in_progress
 priority: high
 type: code
 assignee: claude-code-1
-created: 2026-03-09
-updated: 2026-03-09
+created: "2026-03-09T14:00:00.000Z"
+updated: "2026-03-09T15:45:00.000Z"
 depends_on: []
 scope:
   - src/auth.ts

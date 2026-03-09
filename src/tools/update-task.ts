@@ -34,9 +34,9 @@ export const updateTaskSchema = {
     "The task ID to update (e.g. 'task-2026-03-09-abc123').",
   ),
   status: z.enum([
-    "pending", "claimed", "in_progress", "completed", "failed", "blocked", "cancelled",
+    "pending", "in_progress", "blocked", "cancelled",
   ]).optional().describe(
-    "New status for the task. Use complete_task for marking tasks as completed with deliverables.",
+    "New status. Use claim_task for claiming and complete_task for completing/failing.",
   ),
   priority: z.enum(["critical", "high", "medium", "low"]).optional().describe(
     "New priority for the task.",
@@ -62,7 +62,7 @@ export const updateTaskHandler = (vault: Vault, config: Config) =>
   safeToolHandler(
     async (input: {
       task_id: string;
-      status?: TaskStatus;
+      status?: "pending" | "in_progress" | "blocked" | "cancelled";
       priority?: TaskPriority;
       type?: TaskType;
       assignee?: string;
@@ -90,6 +90,29 @@ export const updateTaskHandler = (vault: Vault, config: Config) =>
       }
 
       const { task } = entry;
+
+      // Reject no-op calls — at least one mutable field must be provided
+      const hasChange = input.status !== undefined ||
+        input.priority !== undefined ||
+        input.type !== undefined ||
+        input.assignee !== undefined ||
+        input.log_entry !== undefined ||
+        input.scope !== undefined ||
+        input.depends_on !== undefined;
+
+      if (!hasChange) {
+        return {
+          content: [{
+            type: "text" as const,
+            text: JSON.stringify({
+              error: "NO_CHANGES",
+              message: `No changes provided. Specify at least one of: status, priority, type, assignee, log_entry, scope, depends_on.`,
+              task_id: task.id,
+            }),
+          }],
+          isError: true,
+        };
+      }
 
       // Terminal tasks can only be retried (-> pending) or have logs appended.
       // Other field changes (priority, type, assignee) are blocked on terminal tasks.
@@ -144,15 +167,17 @@ export const updateTaskHandler = (vault: Vault, config: Config) =>
       if (input.status) {
         updatedFm.status = input.status;
 
-        // Retry/reopen: reset assignee, clear completed_at, increment retry_count
-        if (
-          input.status === "pending" &&
-          ["completed", "failed", "cancelled"].includes(task.status)
-        ) {
+        // Transition to pending: clear claim/assignment state
+        if (input.status === "pending") {
           updatedFm.assignee = "";
-          delete updatedFm.completed_at;
-          const prevRetries = typeof updatedFm.retry_count === "number" ? updatedFm.retry_count : 0;
-          updatedFm.retry_count = prevRetries + 1;
+          delete updatedFm.claimed_at;
+
+          // Retry from terminal: also clear completed_at and increment retry_count
+          if (["completed", "failed", "cancelled"].includes(task.status)) {
+            delete updatedFm.completed_at;
+            const prevRetries = typeof updatedFm.retry_count === "number" ? updatedFm.retry_count : 0;
+            updatedFm.retry_count = prevRetries + 1;
+          }
         }
       }
       if (input.priority) updatedFm.priority = input.priority;

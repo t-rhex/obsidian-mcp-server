@@ -126,8 +126,9 @@ export const completeTaskHandler = (vault: Vault, config: Config) =>
       const newContent = serializeNote(updatedFm, updatedContent);
       await vault.writeNote(entry.path, newContent, { overwrite: true });
 
-      // Unblock dependent tasks
+      // Unblock dependent tasks — only when this task is completed (not failed/cancelled)
       const unblockedTasks: string[] = [];
+      if (finalStatus === "completed") {
       for (const other of allTasks) {
         if (
           other.task.status === "blocked" &&
@@ -135,7 +136,7 @@ export const completeTaskHandler = (vault: Vault, config: Config) =>
         ) {
           // Check if ALL dependencies are now completed
           const allDepsCompleted = other.task.depends_on.every((depId) => {
-            if (depId === task.id) return true; // This task is now completing
+            if (depId === task.id) return true; // This task is now completed
             const dep = allTasks.find((t) => t.task.id === depId);
             return dep && dep.task.status === "completed";
           });
@@ -160,6 +161,7 @@ export const completeTaskHandler = (vault: Vault, config: Config) =>
           }
         }
       }
+      } // end if (finalStatus === "completed")
 
       // Refresh dashboard
       const dashOk = await refreshDashboard(vault, tasksFolder);

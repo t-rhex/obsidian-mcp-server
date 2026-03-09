@@ -197,7 +197,8 @@ export const createProjectHandler = (vault: Vault, config: Config) =>
         }
 
         const hasBlockingDeps = dependsOn.length > 0;
-        const status = hasBlockingDeps ? "blocked" : (taskDef.assignee ? "claimed" : "pending");
+        const isClaimed = !hasBlockingDeps && !!taskDef.assignee;
+        const status = hasBlockingDeps ? "blocked" : (isClaimed ? "claimed" : "pending");
 
         const taskFm = buildTaskFrontmatter({
           id: taskId,
@@ -218,6 +219,7 @@ export const createProjectHandler = (vault: Vault, config: Config) =>
           due: input.due,
           timeout_minutes: taskDef.timeout_minutes,
           assignee: hasBlockingDeps ? undefined : taskDef.assignee,
+          claimed_at: isClaimed ? now : undefined,
           created: now,
           updated: now,
         });

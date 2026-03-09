@@ -42,7 +42,7 @@ All notable changes to this project will be documented in this file.
 - **`DECISIONS_FOLDER` environment variable** — configurable decisions folder (default: `Decisions`)
 - **`DISCOVERIES_FOLDER` environment variable** — configurable discoveries folder (default: `Discoveries`)
 - **Agent skill** — `obsidian-task-orchestration` skill for Claude Code / opencode / skills.sh, teaching agents the context-first workflow
-- 181 new integration tests (215 total, up from 34)
+- 181 new integration tests (215 total)
 
 ## [0.1.2] - 2026-03-09
 

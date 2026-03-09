@@ -484,23 +484,18 @@ section("Task Tools — update_task");
   const raw = await vault.readNote(task.path);
   assert(raw.includes("Starting implementation"), "log entry in file");
 
-  // Invalid transition: in_progress -> claimed (not valid)
-  const badResult = await handler({ task_id: firstTaskId, status: "claimed" });
-  // claimed is not in the valid transitions for in_progress
-  // Actually: in_progress -> [completed, failed, blocked, pending, cancelled]
-  // So claimed should fail
-  // Wait - let me check the transitions. in_progress valid: completed, failed, blocked, pending, cancelled
-  // claimed is NOT in that list, so this should fail
-  // Actually no - looking at the code, "claimed" IS NOT a valid transition from in_progress
-  assert(badResult.isError === true, "invalid transition rejected");
-  const errData = JSON.parse(badResult.content[0].text);
-  assert(errData.error === "INVALID_TRANSITION", "invalid transition error code");
+  // Invalid transition: in_progress -> blocked is valid, but "claimed" is no longer
+  // accepted by update_task (must use claim_task). Test with a no-op call instead.
+  const noopResult = await handler({ task_id: firstTaskId });
+  assert(noopResult.isError === true, "no-op update rejected");
+  const errData = JSON.parse(noopResult.content[0].text);
+  assert(errData.error === "NO_CHANGES", "no-op error code");
 }
 
-section("Task Tools — update_task log only on terminal task");
+section("Task Tools — update_task log on terminal task requires retry");
 {
-  // First complete the task, then try to append a log
-  // (We'll test this after complete_task)
+  // Terminal tasks reject field changes unless retrying via status: "pending".
+  // Log-only appends on terminal tasks are allowed (tested after complete_task).
 }
 
 section("Task Tools — complete_task");

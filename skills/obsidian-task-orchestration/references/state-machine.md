@@ -56,7 +56,7 @@
 | Error | When | Resolution |
 |-------|------|-----------|
 | `TASK_NOT_FOUND` | Task ID doesn't match any note in Tasks/ | Check the ID with `list_tasks` |
-| `ALREADY_CLAIMED` | Another agent claimed the task first | Pick a different task |
+| `TASK_ALREADY_CLAIMED` | Another agent claimed the task first | Pick a different task |
 | `INVALID_TRANSITION` | Status change violates state machine | Check the transition table above |
 | `NOT_A_PROJECT` | `get_project_status` called on a non-project task | Use `list_tasks(type: "project")` to find projects |
 | `PROJECT_NOT_FOUND` | Project ID doesn't exist | Verify with `list_tasks(type: "project")` |
@@ -71,7 +71,7 @@ When `complete_task` marks a task as `completed`, it scans all tasks in the same
 
 ### Dashboard Refresh
 
-Every mutation (`create_task`, `claim_task`, `update_task`, `complete_task`, `create_project`) refreshes the task dashboard at `Tasks/Dashboard.md`. This is a generated overview with task counts by status, priority, and recent activity.
+Every mutation (`create_task`, `claim_task`, `update_task`, `complete_task`, `create_project`) refreshes the task dashboard at `Tasks/DASHBOARD.md`. This is a generated overview with task counts by status, priority, and recent activity.
 
 ### Retry Semantics
 

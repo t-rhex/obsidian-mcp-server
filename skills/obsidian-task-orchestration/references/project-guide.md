@@ -140,15 +140,15 @@ Call `get_project_status(project_id)` to see:
 
 ### Creating Follow-Up Tasks
 
-If a completed task reveals more work:
+If a completed task reveals more work, create a sub-task linked to the project via `parent_task`:
 
 ```
 create_task(
   title: "Handle edge case in JWT expiry",
   description: "Discovered during task-2026-03-09-abc123: ...",
-  project: "proj-2026-03-09-xyz789",
+  parent_task: "proj-2026-03-09-xyz789",
   source: "agent-spawned"
 )
 ```
 
-This attaches the new task to the existing project.
+This links the new task to the existing project via the `parent_task` field. It will appear in `get_project_status` rollups.
