@@ -26,7 +26,7 @@ export const listTasksSchema = {
   priority: z.enum(["critical", "high", "medium", "low", "all"]).optional().default("all").describe(
     "Filter by priority. Default: all.",
   ),
-  type: z.enum(["code", "research", "writing", "maintenance", "other", "all"]).optional().default("all").describe(
+  type: z.enum(["code", "research", "writing", "maintenance", "project", "other", "all"]).optional().default("all").describe(
     "Filter by task type. Default: all.",
   ),
   assignee: z.string().optional().describe(
@@ -41,6 +41,12 @@ export const listTasksSchema = {
   include_completed: z.boolean().optional().default(false).describe(
     "Include completed/failed/cancelled tasks. Default: false (only active + pending).",
   ),
+  project: z.string().optional().describe(
+    "Filter by project ID. Only show tasks belonging to this project.",
+  ),
+  exclude_projects: z.boolean().optional().default(false).describe(
+    "Exclude project-type tasks from results (show only actionable sub-tasks). Default: false.",
+  ),
 };
 
 export const listTasksHandler = (vault: Vault, config: Config) =>
@@ -53,6 +59,8 @@ export const listTasksHandler = (vault: Vault, config: Config) =>
       unassigned_only?: boolean;
       limit?: number;
       include_completed?: boolean;
+      project?: string;
+      exclude_projects?: boolean;
     }) => {
       const tasksFolder = config.tasksFolder;
       const allTasks = await scanTasks(vault, tasksFolder);
@@ -83,6 +91,14 @@ export const listTasksHandler = (vault: Vault, config: Config) =>
 
       if (input.unassigned_only) {
         filtered = filtered.filter((t) => !t.task.assignee);
+      }
+
+      if (input.project) {
+        filtered = filtered.filter((t) => t.task.project === input.project);
+      }
+
+      if (input.exclude_projects) {
+        filtered = filtered.filter((t) => t.task.type !== "project");
       }
 
       // Sort: by priority (critical first), then by created date (oldest first)
@@ -129,6 +145,7 @@ export const listTasksHandler = (vault: Vault, config: Config) =>
                 timeout_minutes: entry.task.timeout_minutes,
                 is_overdue,
                 retry_count: entry.task.retry_count,
+                project: entry.task.project || null,
                 path: entry.path,
               };
             }),

@@ -18,7 +18,7 @@ export type TaskStatus =
 
 export type TaskPriority = "critical" | "high" | "medium" | "low";
 
-export type TaskType = "code" | "research" | "writing" | "maintenance" | "other";
+export type TaskType = "code" | "research" | "writing" | "maintenance" | "project" | "other";
 
 export interface TaskFrontmatter {
   id: string;
@@ -34,6 +34,7 @@ export interface TaskFrontmatter {
   claimed_at?: string;
   retry_count: number;
   source: string;
+  project?: string;
   parent_task?: string;
   depends_on: string[];
   scope: string[];
@@ -51,7 +52,7 @@ export const VALID_PRIORITIES: TaskPriority[] = [
 ];
 
 export const VALID_TYPES: TaskType[] = [
-  "code", "research", "writing", "maintenance", "other",
+  "code", "research", "writing", "maintenance", "project", "other",
 ];
 
 /**
@@ -72,6 +73,24 @@ export function generateTaskId(): string {
   const date = now.toISOString().split("T")[0];
   const rand = Math.random().toString(36).substring(2, 8);
   return `task-${date}-${rand}`;
+}
+
+/**
+ * Generate a unique project ID based on date and a random suffix.
+ */
+export function generateProjectId(): string {
+  const now = new Date();
+  const date = now.toISOString().split("T")[0];
+  const rand = Math.random().toString(36).substring(2, 8);
+  return `proj-${date}-${rand}`;
+}
+
+/**
+ * Build the file path for a project note.
+ */
+export function buildProjectPath(tasksFolder: string, id: string, title: string): string {
+  const slug = slugify(title);
+  return `${tasksFolder}/${id}-${slug}.md`;
 }
 
 /**
@@ -101,6 +120,7 @@ export function buildTaskFrontmatter(
     claimed_at: overrides.claimed_at,
     retry_count: overrides.retry_count ?? 0,
     source: overrides.source ?? "manual",
+    project: overrides.project,
     parent_task: overrides.parent_task,
     depends_on: overrides.depends_on ?? [],
     scope: overrides.scope ?? [],
@@ -141,6 +161,7 @@ export function parseTaskFrontmatter(
     claimed_at: fm.claimed_at ? String(fm.claimed_at) : undefined,
     retry_count: typeof fm.retry_count === "number" ? fm.retry_count : 0,
     source: String(fm.source ?? "manual"),
+    project: fm.project ? String(fm.project) : undefined,
     parent_task: fm.parent_task ? String(fm.parent_task) : undefined,
     depends_on: Array.isArray(fm.depends_on)
       ? fm.depends_on.map(String)

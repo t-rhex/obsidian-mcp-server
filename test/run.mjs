@@ -19,6 +19,8 @@ const { scanTasks, generateDashboard, refreshDashboard } = await import("../buil
 const { createTaskHandler, createTaskSchema } = await import("../build/tools/create-task.js");
 const { listTasksHandler, listTasksSchema } = await import("../build/tools/list-tasks.js");
 const { claimTaskHandler, claimTaskSchema } = await import("../build/tools/claim-task.js");
+const { createProjectHandler } = await import("../build/tools/create-project.js");
+const { getProjectStatusHandler } = await import("../build/tools/get-project-status.js");
 const { updateTaskHandler, updateTaskSchema } = await import("../build/tools/update-task.js");
 const { completeTaskHandler, completeTaskSchema } = await import("../build/tools/complete-task.js");
 
@@ -680,6 +682,158 @@ section("Task Tools — claimed_at set on claim (#17)");
   const data = JSON.parse(result.content[0].text);
   assert(data.claimed_at, "claimed_at returned in claim response");
   assert(data.claimed_at.includes("T"), "claimed_at is ISO datetime");
+}
+
+// ─── Project Tool Tests ─────────────────────────────────────────────
+
+let projectId;
+
+section("Project Tools — create_project");
+{
+  const handler = createProjectHandler(vault, config);
+  const result = await handler({
+    title: "Auth Rewrite",
+    description: "Rewrite the authentication system to use JWT tokens.",
+    priority: "high",
+    tasks: [
+      { title: "Design API schema", type: "research", description: "Document the new API endpoints." },
+      { title: "Implement JWT module", type: "code", depends_on_indices: [0], scope: ["src/auth.ts"] },
+      { title: "Write integration tests", type: "code", depends_on_indices: [1] },
+      { title: "Update API docs", type: "writing" },  // parallel — no deps
+    ],
+    context_notes: ["Projects/api-design"],
+    tags: ["auth", "v2"],
+    source: "test",
+  });
+  assert(!result.isError, "create_project succeeded");
+  const data = JSON.parse(result.content[0].text);
+  assert(data.success === true, "create_project returns success");
+  assert(data.project.id.startsWith("proj-"), "project has proj- ID");
+  assert(data.tasks.length === 4, "4 sub-tasks created");
+  assert(data.summary.pending === 2, "2 tasks immediately claimable (no deps)");
+  assert(data.summary.blocked === 2, "2 tasks blocked by dependencies");
+  assert(data.dashboard_refreshed === true, "dashboard refreshed");
+  projectId = data.project.id;
+
+  // Verify task states
+  const designTask = data.tasks.find((t) => t.title === "Design API schema");
+  assert(designTask.status === "pending", "task without deps is pending");
+
+  const jwtTask = data.tasks.find((t) => t.title === "Implement JWT module");
+  assert(jwtTask.status === "blocked", "task with dep is blocked");
+
+  const docsTask = data.tasks.find((t) => t.title === "Update API docs");
+  assert(docsTask.status === "pending", "parallel task is pending");
+}
+
+section("Project Tools — create_project validates dependency indices");
+{
+  const handler = createProjectHandler(vault, config);
+
+  // Out of range index
+  const badResult = await handler({
+    title: "Bad Project",
+    description: "Has invalid dep index",
+    tasks: [
+      { title: "Task A" },
+      { title: "Task B", depends_on_indices: [5] },
+    ],
+    source: "test",
+  });
+  assert(badResult.isError === true, "invalid dep index returns error");
+  const errData = JSON.parse(badResult.content[0].text);
+  assert(errData.error === "INVALID_DEPENDENCY_INDEX", "correct error code");
+
+  // Self-dependency
+  const selfDepResult = await handler({
+    title: "Self Dep Project",
+    description: "Has self dep",
+    tasks: [
+      { title: "Task A", depends_on_indices: [0] },
+    ],
+    source: "test",
+  });
+  assert(selfDepResult.isError === true, "self-dep returns error");
+}
+
+section("Project Tools — get_project_status");
+{
+  const handler = getProjectStatusHandler(vault, config);
+  const result = await handler({ project_id: projectId });
+  assert(!result.isError, "get_project_status succeeded");
+  const data = JSON.parse(result.content[0].text);
+
+  assert(data.project.id === projectId, "correct project ID");
+  assert(data.project.title === "Auth Rewrite", "correct project title");
+  assert(data.progress.total === 4, "4 total sub-tasks");
+  assert(data.progress.completed === 0, "0 completed initially");
+  assert(data.progress.percent === 0, "0% progress");
+  assert(data.progress.all_done === false, "not all done");
+  assert(data.status_breakdown.pending === 2, "2 pending");
+  assert(data.status_breakdown.blocked === 2, "2 blocked");
+  assert(data.active_agents.length === 0, "no active agents initially");
+  assert(data.tasks.length === 4, "4 tasks in listing");
+}
+
+section("Project Tools — get_project_status with nonexistent project");
+{
+  const handler = getProjectStatusHandler(vault, config);
+  const result = await handler({ project_id: "proj-nonexistent-fake" });
+  assert(result.isError === true, "nonexistent project returns error");
+}
+
+section("Project Tools — list_tasks project filter");
+{
+  const handler = listTasksHandler(vault, config);
+
+  // Filter by project
+  const result = await handler({ project: projectId });
+  const data = JSON.parse(result.content[0].text);
+  assert(data.total === 4, "project filter returns 4 sub-tasks");
+  assert(data.tasks.every((t) => t.project === projectId), "all tasks belong to project");
+
+  // Exclude projects
+  const noProjects = await handler({ exclude_projects: true, status: "all", include_completed: true });
+  const noProjectData = JSON.parse(noProjects.content[0].text);
+  assert(noProjectData.tasks.every((t) => t.type !== "project"), "exclude_projects works — no project-type tasks");
+}
+
+section("Project Tools — multi-agent parallel work");
+{
+  // Two agents claim two independent tasks from the same project
+  const listHandler = listTasksHandler(vault, config);
+  const listResult = await listHandler({ project: projectId, status: "pending", unassigned_only: true });
+  const listData = JSON.parse(listResult.content[0].text);
+  assert(listData.total >= 2, "at least 2 claimable tasks in project");
+
+  const claimHandler = claimTaskHandler(vault, config);
+  const claim1 = await claimHandler({ task_id: listData.tasks[0].id, assignee: "agent-alpha" });
+  const claim2 = await claimHandler({ task_id: listData.tasks[1].id, assignee: "agent-beta" });
+
+  assert(!claim1.isError, "agent-alpha claimed successfully");
+  assert(!claim2.isError, "agent-beta claimed successfully");
+
+  // Verify both show up as active agents
+  const statusHandler = getProjectStatusHandler(vault, config);
+  const statusResult = await statusHandler({ project_id: projectId });
+  const statusData = JSON.parse(statusResult.content[0].text);
+  assert(statusData.active_agents.length === 2, "2 active agents on project");
+  assert(
+    statusData.active_agents.some((a) => a.agent === "agent-alpha"),
+    "agent-alpha is active",
+  );
+  assert(
+    statusData.active_agents.some((a) => a.agent === "agent-beta"),
+    "agent-beta is active",
+  );
+}
+
+section("Project Tools — dashboard includes projects section");
+{
+  const tasks = await scanTasks(vault, "Tasks");
+  const dashboard = generateDashboard(tasks);
+  assert(dashboard.includes("## Projects"), "dashboard has projects section");
+  assert(dashboard.includes("Auth Rewrite"), "dashboard shows project name");
 }
 
 section("Task Config — TASKS_FOLDER env var");

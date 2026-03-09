@@ -48,6 +48,8 @@ import { listTasksSchema, listTasksHandler } from "./tools/list-tasks.js";
 import { claimTaskSchema, claimTaskHandler } from "./tools/claim-task.js";
 import { updateTaskSchema, updateTaskHandler } from "./tools/update-task.js";
 import { completeTaskSchema, completeTaskHandler } from "./tools/complete-task.js";
+import { createProjectSchema, createProjectHandler } from "./tools/create-project.js";
+import { getProjectStatusSchema, getProjectStatusHandler } from "./tools/get-project-status.js";
 
 // ─── Bootstrap ──────────────────────────────────────────────────────
 
@@ -256,6 +258,25 @@ async function main() {
     "and automatically unblocks dependent tasks.",
     completeTaskSchema,
     completeTaskHandler(vault, config),
+  );
+
+  server.tool(
+    "create_project",
+    "Create a project with multiple sub-tasks in one call. " +
+    "Use depends_on_indices to wire up task dependencies by array position. " +
+    "Independent tasks can be claimed by different agents in parallel. " +
+    "Returns all task IDs for immediate claiming.",
+    createProjectSchema,
+    createProjectHandler(vault, config),
+  );
+
+  server.tool(
+    "get_project_status",
+    "Get rollup status of a project: progress percentage, status breakdown, " +
+    "active agents, overdue tasks, and blockers. " +
+    "Use list_tasks(type: 'project') to find project IDs.",
+    getProjectStatusSchema,
+    getProjectStatusHandler(vault, config),
   );
 
   // ─── Connect Transport ──────────────────────────────────────────

@@ -23,8 +23,14 @@ All notable changes to this project will be documented in this file.
 - **ISO 8601 timestamps** — `created`, `updated`, `completed_at`, `claimed_at` all use full ISO datetimes for precise ordering
 - **Advisory scope** — `scope[]` field documents which files a task intends to modify (not enforced — honest about limitations)
 - **Shared section editing** — `appendToAgentLog` and `addDeliverables` extracted to shared module with case-insensitive heading matching
+- **Project orchestration** — 2 additional tools for multi-agent project management:
+  - `create_project` — create a project with multiple sub-tasks in one call, wire dependencies via array indices
+  - `get_project_status` — rollup progress (3/7 completed, 43%), active agents, overdue tasks, blockers
+- **Project field on tasks** — `project` field links sub-tasks to their parent project
+- **Project filter in list_tasks** — `project` parameter + `exclude_projects` flag
+- **Dashboard projects section** — shows all projects with sub-task progress
 - **`TASKS_FOLDER` environment variable** — configurable task folder location (default: `Tasks`)
-- 91 new integration tests for task tools (125 total, up from 34)
+- 127 new integration tests for task tools (161 total, up from 34)
 
 ## [0.1.2] - 2026-03-09
 

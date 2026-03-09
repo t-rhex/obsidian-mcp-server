@@ -27,7 +27,7 @@ export const createTaskSchema = {
   priority: z.enum(["critical", "high", "medium", "low"]).optional().default("medium").describe(
     "Task priority. Default: medium.",
   ),
-  type: z.enum(["code", "research", "writing", "maintenance", "other"]).optional().default("other").describe(
+  type: z.enum(["code", "research", "writing", "maintenance", "project", "other"]).optional().default("other").describe(
     "Type of work. Helps agents decide if they can handle it.",
   ),
   due: z.string().optional().describe(

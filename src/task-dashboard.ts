@@ -96,9 +96,29 @@ export function generateDashboard(tasks: TaskEntry[]): string {
   lines.push(`| **Total** | **${tasks.length}** |`);
   lines.push("");
 
-  // Active tasks (in_progress + claimed)
+  // Projects section
+  const projects = tasks.filter((t) => t.task.type === "project");
+  if (projects.length > 0) {
+    lines.push("## Projects");
+    lines.push("");
+    for (const proj of projects) {
+      const subTasks = tasks.filter(
+        (t) => t.task.project === proj.task.id && t.task.id !== proj.task.id,
+      );
+      const completed = subTasks.filter((t) => t.task.status === "completed").length;
+      const total = subTasks.length;
+      const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
+      const pathNoExt = proj.path.replace(/\.md$/, "");
+      lines.push(
+        `- [[${pathNoExt}|${proj.task.title}]] — ${completed}/${total} tasks (${pct}%) — ${proj.task.priority}`,
+      );
+    }
+    lines.push("");
+  }
+
+  // Active tasks (in_progress + claimed), excluding project containers
   const active = tasks
-    .filter((t) => t.task.status === "in_progress" || t.task.status === "claimed")
+    .filter((t) => (t.task.status === "in_progress" || t.task.status === "claimed") && t.task.type !== "project")
     .sort(sortByPriority);
 
   if (active.length > 0) {

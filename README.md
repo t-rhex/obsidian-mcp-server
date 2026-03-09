@@ -278,6 +278,41 @@ error_reason: "Missing dependency"  # if status is "failed"
 
 Automatically unblocks dependent tasks when a task is completed — sets them from `blocked` to `pending`.
 
+### `create_project`
+
+Create a project with multiple sub-tasks in one call. Wire up inter-task dependencies using array indices. Independent tasks can be claimed by different agents in parallel.
+
+```
+title: "Auth Rewrite"
+description: "Rewrite authentication to use JWT tokens."
+priority: "high"
+tasks: [
+  { title: "Design API schema", type: "research" },
+  { title: "Implement JWT", type: "code", depends_on_indices: [0] },
+  { title: "Write tests", type: "code", depends_on_indices: [1] },
+  { title: "Update docs", type: "writing" }      # parallel — no deps
+]
+context_notes: ["Projects/api-design"]
+tags: ["auth"]
+```
+
+Returns all task IDs. Tasks 0 and 3 are immediately claimable (pending). Tasks 1 and 2 are blocked until their dependencies complete.
+
+### `get_project_status`
+
+Get rollup status of a project and all its sub-tasks.
+
+```
+project_id: "proj-2026-03-09-abc123"
+```
+
+Returns:
+- Progress: `"3/7 tasks completed (43%)"`
+- Status breakdown: pending, claimed, in_progress, blocked, completed, failed
+- Active agents: who's working on what
+- Overdue tasks: tasks past their `timeout_minutes`
+- Blockers: which blocked tasks are waiting on what
+
 ## Agent Workflow
 
 The task tools are designed for AI agent orchestration. Here's the typical workflow:
@@ -289,6 +324,22 @@ The task tools are designed for AI agent orchestration. Here's the typical workf
 4. Agent starts work:                 update_task(task_id: "task-...", status: "in_progress")
 5. Agent logs progress:               update_task(task_id: "task-...", log_entry: "Found root cause...")
 6. Agent finishes:                    complete_task(task_id: "task-...", summary: "Fixed!", deliverables: [...])
+```
+
+### Multi-Agent Project Workflow
+
+```
+1. Human creates a project:          create_project(title: "Auth Rewrite", tasks: [...])
+2. Agent A finds work:               list_tasks(project: "proj-...", status: "pending")
+3. Agent A claims "Design API":      claim_task(task_id: "task-1", assignee: "agent-a")
+4. Agent B finds parallel work:      list_tasks(project: "proj-...", status: "pending")
+5. Agent B claims "Update docs":     claim_task(task_id: "task-4", assignee: "agent-b")
+   (Both agents work in parallel)
+6. Agent A completes design:         complete_task(task_id: "task-1", ...)
+   → "Implement JWT" is auto-unblocked from blocked → pending
+7. Agent C claims "Implement JWT":   claim_task(task_id: "task-2", assignee: "agent-c")
+8. Human checks progress:            get_project_status(project_id: "proj-...")
+   → "Auth Rewrite: 2/4 tasks completed (50%)"
 ```
 
 ### Task Note Structure
@@ -479,7 +530,9 @@ src/
     ├── list-tasks.ts     # Query tasks by filters
     ├── claim-task.ts     # Atomic task claiming with race condition prevention
     ├── update-task.ts    # Update status, append to agent log
-    └── complete-task.ts  # Mark done, link deliverables, unblock dependents
+    ├── complete-task.ts  # Mark done, link deliverables, unblock dependents
+    ├── create-project.ts # Create project with sub-tasks in one call
+    └── get-project-status.ts  # Rollup progress, agents, blockers
 ```
 
 ## License

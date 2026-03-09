@@ -41,7 +41,7 @@ export const updateTaskSchema = {
   priority: z.enum(["critical", "high", "medium", "low"]).optional().describe(
     "New priority for the task.",
   ),
-  type: z.enum(["code", "research", "writing", "maintenance", "other"]).optional().describe(
+  type: z.enum(["code", "research", "writing", "maintenance", "project", "other"]).optional().describe(
     "New task type.",
   ),
   assignee: z.string().optional().describe(
