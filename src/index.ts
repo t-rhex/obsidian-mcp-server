@@ -55,7 +55,16 @@ import { getProjectStatusSchema, getProjectStatusHandler } from "./tools/get-pro
 import { getContextSchema, getContextHandler } from "./tools/get-context.js";
 import { logDecisionSchema, logDecisionHandler } from "./tools/log-decision.js";
 import { logDiscoverySchema, logDiscoveryHandler } from "./tools/log-discovery.js";
+import { reviewTaskSchema, reviewTaskHandler } from "./tools/review-task.js";
+import { registerAgentSchema, registerAgentHandler } from "./tools/register-agent.js";
+import { listAgentsSchema, listAgentsHandler } from "./tools/list-agents.js";
+import { suggestAssigneeSchema, suggestAssigneeHandler } from "./tools/suggest-assignee.js";
+import { checkTimeoutsSchema, checkTimeoutsHandler } from "./tools/check-timeouts.js";
+import { logUsageSchema, logUsageHandler } from "./tools/log-usage.js";
+import { getUsageReportSchema, getUsageReportHandler } from "./tools/get-usage-report.js";
 import { registerPrompts } from "./prompts.js";
+import { EventBus } from "./events.js";
+import { WebhookEmitter } from "./webhooks.js";
 
 // ─── Bootstrap ──────────────────────────────────────────────────────
 
@@ -88,10 +97,12 @@ async function main() {
   const vault = new Vault(config);
   const git = new GitOps(config);
 
-  // ─── Auto-Sync Setup ─────────────────────────────────────────────
+  // ─── Event System Setup ──────────────────────────────────────────
 
+  const eventBus = new EventBus();
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
+  // Auto-sync: triggered by vault writes via the event bus
   if (config.gitAutoSync) {
     const autoSync = async () => {
       try {
@@ -124,6 +135,19 @@ async function main() {
     };
 
     console.error(`Auto-sync enabled (debounce: ${config.gitAutoSyncDebounceMs}ms)`);
+  }
+
+  // Webhook emitter (optional)
+  if (config.webhookUrls.length > 0) {
+    const webhooks = new WebhookEmitter({
+      urls: config.webhookUrls,
+      secret: config.webhookSecret || undefined,
+      timeoutMs: config.webhookTimeoutMs,
+    });
+    eventBus.onEvent((event) => {
+      webhooks.send(event).catch(() => { /* fire-and-forget */ });
+    });
+    console.error(`Webhooks enabled: ${config.webhookUrls.length} URL(s) configured`);
   }
 
   // ─── Server Setup ─────────────────────────────────────────────────
@@ -316,6 +340,74 @@ async function main() {
     logDiscoveryHandler(vault, config),
   );
 
+  // ─── HITL & Review Tools ───────────────────────────────────────
+
+  server.tool(
+    "review_task",
+    "Approve or reject a task in needs_review status. " +
+    "Used by humans to gate high-risk work. " +
+    "Approve sends to completed and unblocks dependents. Reject sends to revision_requested.",
+    reviewTaskSchema,
+    reviewTaskHandler(vault, config),
+  );
+
+  // ─── Agent Registry Tools ────────────────────────────────────────
+
+  server.tool(
+    "register_agent",
+    "Register an agent with capabilities, tags, and capacity. " +
+    "Creates or updates an agent profile in the Agents/ folder. " +
+    "Used for capability-based task routing.",
+    registerAgentSchema,
+    registerAgentHandler(vault, config),
+  );
+
+  server.tool(
+    "list_agents",
+    "List registered agents. Filter by capability, tag, status, or availability. " +
+    "Shows current workload and capacity for each agent.",
+    listAgentsSchema,
+    listAgentsHandler(vault, config),
+  );
+
+  server.tool(
+    "suggest_assignee",
+    "Given a task ID, suggest the best agents to assign based on capability match, " +
+    "tag overlap, availability, and success rate. Returns ranked suggestions.",
+    suggestAssigneeSchema,
+    suggestAssigneeHandler(vault, config),
+  );
+
+  // ─── Retry & Escalation Tools ────────────────────────────────────
+
+  server.tool(
+    "check_timeouts",
+    "Scan for overdue and failed tasks. Auto-retry failed tasks within max_retries, " +
+    "escalate exhausted tasks to escalate_to agent/human, release timed-out tasks. " +
+    "Use dry_run=true to preview actions without making changes.",
+    checkTimeoutsSchema,
+    checkTimeoutsHandler(vault, config),
+  );
+
+  // ─── Usage Tracking Tools ────────────────────────────────────────
+
+  server.tool(
+    "log_usage",
+    "Record token/cost usage for a task or agent. " +
+    "Stores structured usage records in the Usage/ folder. " +
+    "Optionally appends usage summary to the task's Agent Log.",
+    logUsageSchema,
+    logUsageHandler(vault, config),
+  );
+
+  server.tool(
+    "get_usage_report",
+    "Aggregate token and cost usage across tasks, agents, projects, and time ranges. " +
+    "Returns totals and breakdowns by agent and model.",
+    getUsageReportSchema,
+    getUsageReportHandler(vault, config),
+  );
+
   // ─── Register Prompts ────────────────────────────────────────────
 
   registerPrompts(server);
@@ -325,6 +417,15 @@ async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
   console.error(`Obsidian MCP Server started. Vault: ${config.vaultPath}`);
+
+  // Wire event bus to MCP logging notifications (after connect)
+  eventBus.onEvent((event) => {
+    server.server.sendLoggingMessage({
+      level: "info",
+      logger: "vault-events",
+      data: event,
+    }).catch(() => { /* ignore if client doesn't support logging */ });
+  });
 
   // ─── Graceful Shutdown ──────────────────────────────────────────
 

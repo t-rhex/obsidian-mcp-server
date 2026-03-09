@@ -86,7 +86,8 @@ export function generateDashboard(tasks: TaskEntry[]): string {
   lines.push("|--------|-------|");
 
   const statusOrder: TaskStatus[] = [
-    "in_progress", "claimed", "pending", "blocked", "completed", "failed", "cancelled",
+    "in_progress", "claimed", "pending", "needs_review", "revision_requested",
+    "blocked", "completed", "failed", "cancelled",
   ];
   for (const status of statusOrder) {
     const count = statusCounts[status] ?? 0;
@@ -130,6 +131,42 @@ export function generateDashboard(tasks: TaskEntry[]): string {
       const pathNoExt = entry.path.replace(/\.md$/, "");
       lines.push(
         `- [[${pathNoExt}|${entry.task.title}]] — ${entry.task.priority} ${entry.task.type}${assignee}`,
+      );
+    }
+    lines.push("");
+  }
+
+  // Needs Review tasks
+  const needsReview = tasks
+    .filter((t) => t.task.status === "needs_review" && t.task.type !== "project")
+    .sort(sortByPriority);
+
+  if (needsReview.length > 0) {
+    lines.push("## Needs Review");
+    lines.push("");
+    for (const entry of needsReview) {
+      const reviewer = entry.task.reviewer ? ` (reviewer: ${entry.task.reviewer})` : "";
+      const pathNoExt = entry.path.replace(/\.md$/, "");
+      lines.push(
+        `- [[${pathNoExt}|${entry.task.title}]] — ${entry.task.priority}${reviewer}`,
+      );
+    }
+    lines.push("");
+  }
+
+  // Revision Requested tasks
+  const revisionRequested = tasks
+    .filter((t) => t.task.status === "revision_requested" && t.task.type !== "project")
+    .sort(sortByPriority);
+
+  if (revisionRequested.length > 0) {
+    lines.push("## Revision Requested");
+    lines.push("");
+    for (const entry of revisionRequested) {
+      const assignee = entry.task.assignee ? ` (${entry.task.assignee})` : "";
+      const pathNoExt = entry.path.replace(/\.md$/, "");
+      lines.push(
+        `- [[${pathNoExt}|${entry.task.title}]] — ${entry.task.priority}${assignee}`,
       );
     }
     lines.push("");

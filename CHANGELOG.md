@@ -2,6 +2,40 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.0] - 2026-03-09
+
+### Added
+- **Human-in-the-Loop (HITL)** — tasks with `review_required: true` redirect to `needs_review` status on completion instead of auto-completing. New `review_task` tool lets humans/agents approve, reject, or request changes with feedback.
+  - New task statuses: `needs_review`, `revision_requested`
+  - New frontmatter fields: `review_required`, `reviewer`, `feedback`, `review_count`, `risk_level`
+- **Agent Registry** — register AI agents with capabilities, track their status, and route tasks intelligently:
+  - `register_agent` — register/update an agent profile with capabilities, tags, and model info
+  - `list_agents` — query agents with filters (capability, tag, status, available_only)
+  - `suggest_assignee` — capability-based routing suggestions for a given task
+  - Agent profiles stored as markdown notes in configurable `Agents/` folder
+- **Retry & Escalation** — automatic retry and escalation for failed/stuck tasks:
+  - `check_timeouts` — scan for overdue tasks, auto-retry up to `max_retries`, escalate when exhausted
+  - New frontmatter fields: `max_retries`, `retry_delay_minutes`, `escalate_to`, `escalation_status`
+  - Supports `dry_run` mode for preview without changes
+- **Conditional Workflows (Routing Rules)** — output-based branching after task completion:
+  - Tasks can have `routing_rules` with `output_contains`, `output_matches`, or `status_is` conditions
+  - Rules selectively `activate` (unblock) or `deactivate` (cancel) dependent tasks based on completion output
+  - `create_project` resolves `idx:N` references in routing rules to real task IDs automatically
+- **Token & Cost Tracking** — monitor AI resource usage across agents and tasks:
+  - `log_usage` — record input/output tokens, model, cost, and duration per interaction
+  - `get_usage_report` — aggregate usage stats with filters (agent, task, project, date range) and grouping by agent/model
+  - Usage records stored in configurable `Usage/` folder
+- **Event System** — internal EventBus with typed events for task lifecycle notifications
+- **Webhook Notifications** — fire-and-forget HTTP POST to configured URLs on task events, with HMAC-SHA256 signing and retry
+- **Dashboard enhancements** — new "Needs Review" and "Revision Requested" sections in DASHBOARD.md
+- **Context briefing enhancements** — `get_context` now includes review queue and revision-requested tasks
+- 5 new environment variables: `WEBHOOK_URL`, `WEBHOOK_SECRET`, `WEBHOOK_TIMEOUT_MS`, `AGENTS_FOLDER`, `USAGE_FOLDER`
+- 74 new integration tests (317 total)
+
+### Fixed
+- `get_usage_report` test assertions accessed response fields at wrong nesting level
+- `routing_rules` with `deactivate: undefined` caused js-yaml serialization crash (gray-matter gotcha)
+
 ## [0.2.0] - 2026-03-09
 
 ### Added

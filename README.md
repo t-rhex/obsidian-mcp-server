@@ -11,7 +11,7 @@
 
 An MCP server that gives AI agents direct filesystem access to your Obsidian vault — no Obsidian running required. Manage notes, orchestrate multi-agent task workflows, persist context across sessions, and sync everything with git.
 
-[Quick Start](#quick-start) &bull; [Tools](#tools-20) &bull; [Task Orchestration](#task-orchestration) &bull; [Configuration](#configuration)
+[Quick Start](#quick-start) &bull; [Tools](#tools-27) &bull; [Task Orchestration](#task-orchestration) &bull; [Configuration](#configuration)
 
 </div>
 
@@ -101,7 +101,25 @@ graph TB
 | **Dependency Graphs** | Tasks block/unblock automatically based on `depends_on` |
 | **Project Management** | Create projects with sub-tasks, track rollup progress |
 | **Append Mode** | Add new sub-tasks to existing projects with `project_id` |
+| **Conditional Workflows** | Routing rules: branch task execution based on output (v0.3) |
 | **Auto Dashboard** | `DASHBOARD.md` regenerated after every mutation |
+
+### Human-in-the-Loop (v0.3)
+| Feature | Description |
+|---------|-------------|
+| **Review Gates** | Tasks with `review_required` redirect to `needs_review` on completion |
+| **Approve / Reject** | `review_task` tool for humans/agents to approve, reject, or request changes |
+| **Feedback Loop** | Rejected tasks enter `revision_requested` → agents revise → resubmit |
+| **Risk Levels** | Tag tasks as `low` / `medium` / `high` / `critical` risk |
+
+### Agent Management (v0.3)
+| Feature | Description |
+|---------|-------------|
+| **Agent Registry** | Register agents with capabilities, tags, and model info |
+| **Capability Routing** | `suggest_assignee` recommends the best agent for a task |
+| **Timeout Detection** | `check_timeouts` scans for overdue tasks with auto-retry and escalation |
+| **Usage Tracking** | Record and aggregate token usage and cost per agent/task/project |
+| **Webhook Events** | Fire HTTP POST notifications on task lifecycle events |
 
 ### Context Persistence
 | Feature | Description |
@@ -184,7 +202,7 @@ OBSIDIAN_VAULT_PATH=/path/to/vault node build/index.js
 
 ---
 
-## Tools (20)
+## Tools (27)
 
 ### Note Tools
 
@@ -447,6 +465,102 @@ category: "bug"
 ```
 </details>
 
+### Review & HITL Tools
+
+<details>
+<summary><code>review_task</code> — Approve, reject, or request changes on tasks in review</summary>
+
+```
+task_id: "task-2026-03-09-abc123"
+action: "approve"                # "approve" | "reject" | "request_changes"
+reviewer: "human-alice"
+feedback: "Looks good, ship it."  # required for reject/request_changes
+```
+
+On approve, the task moves to `completed` and dependents are unblocked. On reject/request_changes, the task moves to `revision_requested` for the assignee to revise and resubmit.
+</details>
+
+### Agent Tools
+
+<details>
+<summary><code>register_agent</code> — Register an agent with capabilities and metadata</summary>
+
+```
+agent_id: "claude-code-1"
+capabilities: ["code", "research", "writing"]
+tags: ["auth", "backend"]
+model: "claude-sonnet-4"
+max_concurrent: 3
+```
+
+Creates/updates an agent profile in the `Agents/` folder. Agents are tracked with status (`active`, `idle`, `offline`) and heartbeat timestamps.
+</details>
+
+<details>
+<summary><code>list_agents</code> — Query registered agents with filters</summary>
+
+```
+capability: "code"               # filter by capability
+tag: "auth"                      # filter by tag
+status: "active"                 # "active" | "idle" | "offline"
+available_only: true             # only agents below max_concurrent
+```
+</details>
+
+<details>
+<summary><code>suggest_assignee</code> — Get capability-based agent recommendations for a task</summary>
+
+```
+task_id: "task-2026-03-09-abc123"
+```
+
+Returns a ranked list of agents sorted by capability match, tag overlap, and current workload.
+</details>
+
+<details>
+<summary><code>check_timeouts</code> — Scan for overdue tasks, apply retry and escalation</summary>
+
+```
+dry_run: false                   # true for preview without changes
+```
+
+Scans all claimed/in_progress tasks for `timeout_minutes` violations. For overdue tasks:
+- If `retry_count < max_retries`: resets to `pending` for retry
+- If retries exhausted + `escalate_to` set: marks as escalated
+- Returns list of all actions taken
+</details>
+
+### Usage Tracking Tools
+
+<details>
+<summary><code>log_usage</code> — Record token usage and cost for an interaction</summary>
+
+```
+agent_id: "claude-code-1"
+task_id: "task-abc-123"          # optional
+input_tokens: 15000
+output_tokens: 3000
+model: "claude-sonnet-4"
+cost_usd: 0.042
+duration_seconds: 30
+notes: "Implemented auth module"
+```
+</details>
+
+<details>
+<summary><code>get_usage_report</code> — Aggregate usage stats with filters and grouping</summary>
+
+```
+agent_id: "claude-code-1"       # optional filter
+project_id: "proj-..."          # optional filter
+task_id: "task-..."             # optional filter
+from_date: "2026-03-01"        # optional
+to_date: "2026-03-09"          # optional
+```
+
+Returns: `total_input_tokens`, `total_output_tokens`, `total_cost_usd`, `record_count`, grouped by agent and model.
+</details>
+
 ---
 
 ## Task Orchestration
@@ -564,10 +678,16 @@ stateDiagram-v2
     claimed --> cancelled: update_task
 
     in_progress --> completed: complete_task
+    in_progress --> needs_review: complete_task (review_required)
     in_progress --> failed: complete_task
     in_progress --> blocked: update_task
     in_progress --> pending: update_task
     in_progress --> cancelled: update_task
+
+    needs_review --> completed: review_task (approve)
+    needs_review --> revision_requested: review_task (reject)
+
+    revision_requested --> in_progress: update_task
 
     blocked --> pending: auto-unblock / update
     blocked --> cancelled: update_task
@@ -761,6 +881,8 @@ Or copy from [`prompts/`](./prompts) into your agent's system prompt.
 | `TASKS_FOLDER` | `Tasks` | Task notes subfolder |
 | `DECISIONS_FOLDER` | `Decisions` | Decision records subfolder |
 | `DISCOVERIES_FOLDER` | `Discoveries` | Discovery notes subfolder |
+| `AGENTS_FOLDER` | `Agents` | Agent profile notes subfolder |
+| `USAGE_FOLDER` | `Usage` | Token usage records subfolder |
 
 ### Git
 
@@ -773,6 +895,14 @@ Or copy from [`prompts/`](./prompts) into your agent's system prompt.
 | `GIT_BRANCH` | `main` | Default branch |
 | `GIT_TIMEOUT_MS` | `30000` | Git operation timeout |
 | `GIT_PULL_REBASE` | `true` | Use `--rebase` on pull |
+
+### Webhooks
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `WEBHOOK_URL` | — | Comma-separated webhook URLs for task event notifications |
+| `WEBHOOK_SECRET` | — | HMAC-SHA256 secret for signing webhook payloads |
+| `WEBHOOK_TIMEOUT_MS` | `5000` | Webhook HTTP request timeout |
 
 ---
 
@@ -801,7 +931,8 @@ Or copy from [`prompts/`](./prompts) into your agent's system prompt.
 
 - **No file locking** — claims are atomic within a single server process (Node event loop). Multiple server processes sharing a vault need external coordination.
 - **Scope is advisory** — `scope[]` is not enforced by the server. Agents should respect it.
-- **No automatic timeout recovery** — overdue tasks are reported but not auto-released.
+- **Timeouts need `check_timeouts`** — overdue tasks are detected but not auto-released; an agent or cron must call `check_timeouts` periodically.
+- **Webhooks are fire-and-forget** — webhook delivery is best-effort with one retry. No persistent queue.
 
 ---
 
@@ -809,20 +940,23 @@ Or copy from [`prompts/`](./prompts) into your agent's system prompt.
 
 ```
 src/
-├── index.ts              # MCP server entry, 20 tools + 3 prompts
+├── index.ts              # MCP server entry, 27 tools + 3 prompts
 ├── config.ts             # Environment variable parsing
 ├── errors.ts             # Typed errors + safe handler wrapper
 ├── vault.ts              # Filesystem: path safety, atomic writes, list, search
 ├── frontmatter.ts        # YAML parse/serialize, tag extraction
 ├── git.ts                # Git CLI wrapper with mutex
+├── events.ts             # EventBus with typed task lifecycle events
+├── webhooks.ts           # WebhookEmitter with HMAC-SHA256 signing
+├── agent-registry.ts     # Agent profiles, scanning, capability matching
 ├── task-schema.ts        # Task types, IDs, validation, state machine
 ├── task-dashboard.ts     # Task scanning + DASHBOARD.md generation
 ├── prompts.ts            # MCP prompt registration
-└── tools/                # One file per tool (20 files)
+└── tools/                # One file per tool (27 files)
 
 prompts/                  # Agent persona prompts (ship with npm)
 skills/                   # Agent skills (ship with npm, skills.sh compatible)
-test/run.mjs              # 243 integration tests
+test/run.mjs              # 317 integration tests
 ```
 
 ---
@@ -832,7 +966,7 @@ test/run.mjs              # 243 integration tests
 ```bash
 npm install
 npm run build             # TypeScript → build/
-npm test                  # 243 integration tests
+npm test                  # 317 integration tests
 npm run dev               # tsc --watch
 ```
 

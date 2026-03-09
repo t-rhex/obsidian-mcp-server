@@ -34,6 +34,7 @@ import {
   generateTaskId,
   nowISO,
   parseTaskFrontmatter,
+  RoutingRule,
   TaskPriority,
   TaskType,
 } from "../task-schema.js";
@@ -70,6 +71,19 @@ const subTaskSchema = z.object({
   ),
   assignee: z.string().optional().describe(
     "Optionally pre-assign to a specific agent.",
+  ),
+  routing_rules: z.array(z.object({
+    condition: z.enum(["output_contains", "output_matches", "status_is"]),
+    value: z.string(),
+    activate: z.array(z.string()).describe(
+      "Task IDs or 'idx:N' references (0-based index into this tasks array) to unblock when this rule matches.",
+    ),
+    deactivate: z.array(z.string()).optional().describe(
+      "Task IDs or 'idx:N' references to cancel when this rule matches.",
+    ),
+  })).optional().describe(
+    "Conditional workflow rules. Use 'idx:N' to reference other tasks in this batch by index. " +
+    "Resolved to real task IDs automatically.",
   ),
 });
 
@@ -123,6 +137,12 @@ export const createProjectHandler = (vault: Vault, config: Config) =>
         acceptance_criteria?: string[];
         timeout_minutes?: number;
         assignee?: string;
+        routing_rules?: Array<{
+          condition: "output_contains" | "output_matches" | "status_is";
+          value: string;
+          activate: string[];
+          deactivate?: string[];
+        }>;
       }>;
       context_notes?: string[];
       tags?: string[];
@@ -309,6 +329,22 @@ export const createProjectHandler = (vault: Vault, config: Config) =>
           }
         }
 
+        // Resolve idx:N references in routing_rules to actual task IDs
+        let resolvedRules: RoutingRule[] | undefined;
+        if (taskDef.routing_rules && taskDef.routing_rules.length > 0) {
+          resolvedRules = taskDef.routing_rules.map((rule) => {
+            const resolved: RoutingRule = {
+              condition: rule.condition,
+              value: rule.value,
+              activate: rule.activate.map((ref) => resolveIdxRef(ref, taskIds)),
+            };
+            if (rule.deactivate) {
+              resolved.deactivate = rule.deactivate.map((ref) => resolveIdxRef(ref, taskIds));
+            }
+            return resolved;
+          });
+        }
+
         const hasBlockingDeps = dependsOn.length > 0;
         const isClaimed = !hasBlockingDeps && !!taskDef.assignee;
         const status = hasBlockingDeps ? "blocked" : (isClaimed ? "claimed" : "pending");
@@ -333,6 +369,7 @@ export const createProjectHandler = (vault: Vault, config: Config) =>
           timeout_minutes: taskDef.timeout_minutes,
           assignee: hasBlockingDeps ? undefined : taskDef.assignee,
           claimed_at: isClaimed ? now : undefined,
+          routing_rules: resolvedRules,
           created: now,
           updated: now,
         });
@@ -443,6 +480,24 @@ function buildSubTaskLines(
     lines.push(`- [ ] ${taskIds[i]} — ${tasks[i].title}${depStr}`);
   }
   return lines.join("\n");
+}
+
+/**
+ * Resolve an `idx:N` reference to a real task ID.
+ * If the string matches `idx:N` pattern, returns `taskIds[N]`.
+ * Otherwise returns the string as-is (already a task ID).
+ */
+function resolveIdxRef(ref: string, taskIds: string[]): string {
+  const match = /^idx:(\d+)$/.exec(ref);
+  if (match) {
+    const idx = parseInt(match[1], 10);
+    if (idx >= 0 && idx < taskIds.length) {
+      return taskIds[idx];
+    }
+    // Out of range — return as-is (will be a broken reference but won't crash)
+    return ref;
+  }
+  return ref;
 }
 
 /**

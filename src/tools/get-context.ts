@@ -203,6 +203,31 @@ export const getContextHandler = (vault: Vault, config: Config) =>
         });
       }
 
+      // ── 4b. Needs review queue ─────────────────────────────────────
+      const reviewQueue = relevantTasks
+        .filter((t) => t.task.status === "needs_review" && t.task.type !== "project")
+        .map((t) => ({
+          id: t.task.id,
+          title: t.task.title,
+          priority: t.task.priority,
+          reviewer: t.task.reviewer || null,
+          project: t.task.project || null,
+          path: t.path,
+        }));
+
+      // ── 4c. Revision requested ────────────────────────────────────
+      const revisionRequested = relevantTasks
+        .filter((t) => t.task.status === "revision_requested" && t.task.type !== "project")
+        .map((t) => ({
+          id: t.task.id,
+          title: t.task.title,
+          priority: t.task.priority,
+          assignee: t.task.assignee || null,
+          feedback: t.task.feedback || null,
+          project: t.task.project || null,
+          path: t.path,
+        }));
+
       // ── 5. Blockers and failures ───────────────────────────────────
       // Build task title lookup for resolving IDs
       const taskTitles = new Map<string, string>();
@@ -350,6 +375,14 @@ export const getContextHandler = (vault: Vault, config: Config) =>
         briefing.pending_work = pendingWork;
       }
 
+      if (reviewQueue.length > 0) {
+        briefing.needs_review = reviewQueue;
+      }
+
+      if (revisionRequested.length > 0) {
+        briefing.revision_requested = revisionRequested;
+      }
+
       if (blockers.length > 0) {
         briefing.blockers = blockers;
       }
@@ -384,6 +417,8 @@ export const getContextHandler = (vault: Vault, config: Config) =>
       if (activeWork.length > 0) parts.push(`${activeWork.length} task(s) in progress`);
       const pendingCount = pendingWork.reduce((sum, g) => sum + g.tasks.length, 0);
       if (pendingCount > 0) parts.push(`${pendingCount} task(s) ready to claim`);
+      if (reviewQueue.length > 0) parts.push(`${reviewQueue.length} awaiting review`);
+      if (revisionRequested.length > 0) parts.push(`${revisionRequested.length} need revision`);
       if (blockers.length > 0) parts.push(`${blockers.length} blocked`);
       if (failures.length > 0) parts.push(`${failures.length} failed`);
       if (overdue.length > 0) parts.push(`${overdue.length} overdue`);

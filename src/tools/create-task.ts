@@ -17,6 +17,8 @@ import {
   nowISO,
   TaskPriority,
   TaskType,
+  RiskLevel,
+  RoutingRule,
 } from "../task-schema.js";
 import { refreshDashboard } from "../task-dashboard.js";
 
@@ -64,6 +66,32 @@ export const createTaskSchema = {
   assignee: z.string().optional().describe(
     "Optionally pre-assign to a specific agent.",
   ),
+  review_required: z.boolean().optional().describe(
+    "If true, complete_task sends to needs_review instead of completed. Human must approve.",
+  ),
+  reviewer: z.string().optional().describe(
+    "Who should review this task (optional).",
+  ),
+  risk_level: z.enum(["low", "medium", "high", "critical"]).optional().describe(
+    "Risk level. High/critical tasks auto-require review on completion.",
+  ),
+  max_retries: z.number().optional().default(0).describe(
+    "Max auto-retries on failure. 0 = no auto-retry (default).",
+  ),
+  retry_delay_minutes: z.number().optional().default(5).describe(
+    "Minutes to wait between retries. Default: 5.",
+  ),
+  escalate_to: z.string().optional().describe(
+    "Agent ID or 'human' to escalate to after max_retries exhausted.",
+  ),
+  routing_rules: z.array(z.object({
+    condition: z.enum(["output_contains", "output_matches", "status_is"]),
+    value: z.string(),
+    activate: z.array(z.string()),
+    deactivate: z.array(z.string()).optional(),
+  })).optional().describe(
+    "Conditional workflow rules. When this task completes, evaluate rules against output to selectively unblock/cancel dependents.",
+  ),
 };
 
 export const createTaskHandler = (vault: Vault, config: Config) =>
@@ -84,6 +112,13 @@ export const createTaskHandler = (vault: Vault, config: Config) =>
       timeout_minutes?: number;
       tags?: string[];
       assignee?: string;
+      review_required?: boolean;
+      reviewer?: string;
+      risk_level?: RiskLevel;
+      max_retries?: number;
+      retry_delay_minutes?: number;
+      escalate_to?: string;
+      routing_rules?: RoutingRule[];
     }) => {
       const tasksFolder = config.tasksFolder;
 
@@ -119,6 +154,16 @@ export const createTaskHandler = (vault: Vault, config: Config) =>
         // Dependencies take precedence: blocked > claimed > pending
         status: input.depends_on?.length ? "blocked" : (isClaimed ? "claimed" : "pending"),
         claimed_at: isClaimed ? nowISO() : undefined,
+        // HITL
+        review_required: input.review_required,
+        reviewer: input.reviewer,
+        risk_level: input.risk_level,
+        // Retry / Escalation
+        max_retries: input.max_retries,
+        retry_delay_minutes: input.retry_delay_minutes,
+        escalate_to: input.escalate_to,
+        // Conditional workflows
+        routing_rules: input.routing_rules,
       });
 
       // Build body
