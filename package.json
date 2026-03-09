@@ -1,20 +1,50 @@
 {
-  "name": "obsidian-mcp-server",
+  "name": "mcp-obsidian-vault",
   "version": "0.1.0",
-  "description": "MCP server for Obsidian vault — direct filesystem access, no Obsidian required",
+  "description": "MCP server for Obsidian vaults — direct filesystem access with git sync, wikilinks, and frontmatter. No Obsidian required.",
   "main": "build/index.js",
   "type": "module",
   "bin": {
-    "obsidian-mcp": "build/index.js"
+    "mcp-obsidian-vault": "build/index.js"
   },
+  "files": [
+    "build",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && chmod +x build/index.js",
+    "prepublishOnly": "npm run build",
     "start": "node build/index.js",
     "dev": "tsc --watch"
   },
-  "keywords": ["mcp", "obsidian", "vault", "markdown"],
-  "author": "",
+  "keywords": [
+    "mcp",
+    "obsidian",
+    "vault",
+    "markdown",
+    "model-context-protocol",
+    "ai",
+    "claude",
+    "notes",
+    "knowledge-base",
+    "git-sync",
+    "frontmatter",
+    "wikilinks"
+  ],
+  "author": "t-rhex",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/t-rhex/obsidian-mcp-server.git"
+  },
+  "homepage": "https://github.com/t-rhex/obsidian-mcp-server#readme",
+  "bugs": {
+    "url": "https://github.com/t-rhex/obsidian-mcp-server/issues"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.27.1",
     "gray-matter": "^4.0.3",

@@ -37,6 +37,7 @@ import { listVaultSchema, listVaultHandler } from "./tools/list-vault.js";
 import { manageTagsSchema, manageTagsHandler } from "./tools/manage-tags.js";
 import { dailyNoteSchema, dailyNoteHandler } from "./tools/daily-note.js";
 import { gitSyncSchema, gitSyncHandler } from "./tools/git-sync.js";
+import { wikilinksSchema, wikilinksHandler } from "./tools/wikilinks.js";
 
 // ─── Bootstrap ──────────────────────────────────────────────────────
 
@@ -166,6 +167,16 @@ async function main() {
     "'init' (initialize git repo + .gitignore), 'remote_add' (add remote), 'remote_list' (list remotes).",
     gitSyncSchema,
     gitSyncHandler(git, vault),
+  );
+
+  server.tool(
+    "wikilinks",
+    "Navigate Obsidian [[wikilinks]]. Actions: 'resolve' (find file a wikilink points to), " +
+    "'backlinks' (find all notes linking to a note), 'outlinks' (list all links from a note), " +
+    "'unresolved' (find broken wikilinks across the vault). Supports [[note]], [[note|alias]], " +
+    "[[note#heading]], and [[note#^blockid]] syntax.",
+    wikilinksSchema,
+    wikilinksHandler(vault),
   );
 
   // ─── Connect Transport ──────────────────────────────────────────

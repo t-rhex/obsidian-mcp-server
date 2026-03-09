@@ -1,29 +1,27 @@
-# obsidian-mcp-server
+# mcp-obsidian-vault
 
 An MCP (Model Context Protocol) server that gives AI assistants direct filesystem access to your Obsidian vault. No Obsidian running required — reads and writes markdown files directly on disk.
 
 ## Features
 
 - **Read, create, update, delete notes** with YAML frontmatter support
+- **Wikilinks** — resolve `[[links]]`, find backlinks, outlinks, and broken links
 - **Full-text search** across your vault with regex support and timeout protection
 - **Browse vault structure** with recursive listing and depth control
 - **Tag management** — read, add, remove tags from frontmatter (deduplicates automatically)
 - **Daily notes** — get, create, or append by date (`today`, `yesterday`, `2025-03-08`, etc.)
 - **Git sync** — commit, pull, push, and full sync via git CLI. Optional auto-sync after every write.
 
-## Requirements
-
-- Node.js 18+
-- An Obsidian vault (just a folder of markdown files)
-- Git (optional, only needed for git sync features)
-
 ## Installation
 
 ```bash
-git clone https://github.com/t-rhex/obsidian-mcp-server.git
-cd obsidian-mcp-server
-npm install
-npm run build
+npx mcp-obsidian-vault
+```
+
+Or install globally:
+
+```bash
+npm install -g mcp-obsidian-vault
 ```
 
 ## Quick Start
@@ -36,8 +34,8 @@ Add to your `claude_desktop_config.json`:
 {
   "mcpServers": {
     "obsidian": {
-      "command": "node",
-      "args": ["/path/to/obsidian-mcp-server/build/index.js"],
+      "command": "npx",
+      "args": ["-y", "mcp-obsidian-vault"],
       "env": {
         "OBSIDIAN_VAULT_PATH": "/path/to/your/vault"
       }
@@ -46,14 +44,14 @@ Add to your `claude_desktop_config.json`:
 }
 ```
 
-### With git auto-sync enabled
+### With git auto-sync
 
 ```json
 {
   "mcpServers": {
     "obsidian": {
-      "command": "node",
-      "args": ["/path/to/obsidian-mcp-server/build/index.js"],
+      "command": "npx",
+      "args": ["-y", "mcp-obsidian-vault"],
       "env": {
         "OBSIDIAN_VAULT_PATH": "/path/to/your/vault",
         "GIT_AUTO_SYNC": "true"
@@ -61,6 +59,16 @@ Add to your `claude_desktop_config.json`:
     }
   }
 }
+```
+
+### From source
+
+```bash
+git clone https://github.com/t-rhex/obsidian-mcp-server.git
+cd obsidian-mcp-server
+npm install
+npm run build
+OBSIDIAN_VAULT_PATH=/path/to/vault node build/index.js
 ```
 
 ## Tools
@@ -148,6 +156,22 @@ date: "today"                    # "today" | "yesterday" | "tomorrow" | "2025-03
 content: "- Met with team about roadmap"
 ```
 
+### `wikilinks`
+
+Navigate Obsidian `[[wikilinks]]`. Supports `[[note]]`, `[[note|alias]]`, `[[note#heading]]`, and `[[note#^blockid]]`.
+
+```
+action: "backlinks"              # "resolve" | "backlinks" | "outlinks" | "unresolved"
+path: "Projects/my-note"
+```
+
+| Action | Description |
+|--------|-------------|
+| `resolve` | Find the file a `[[wikilink]]` points to (set `path` to the link target) |
+| `backlinks` | Find all notes that link TO a given note |
+| `outlinks` | List all `[[wikilinks]]` FROM a note, with resolution status |
+| `unresolved` | Find all broken `[[wikilinks]]` across the entire vault |
+
 ### `git_sync`
 
 Git version control for your vault.
@@ -156,8 +180,6 @@ Git version control for your vault.
 action: "sync"                   # full pull + commit + push
 message: "update notes"          # optional commit message
 ```
-
-Available actions:
 
 | Action | Description |
 |--------|-------------|
@@ -248,6 +270,7 @@ src/
     ├── list-vault.ts
     ├── manage-tags.ts
     ├── daily-note.ts
+    ├── wikilinks.ts
     └── git-sync.ts
 ```
 
