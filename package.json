@@ -1,6 +1,6 @@
 {
   "name": "mcp-obsidian-vault",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "MCP server for Obsidian vaults — direct filesystem access with git sync, wikilinks, and frontmatter. No Obsidian required.",
   "main": "build/index.js",
   "type": "module",
@@ -35,7 +35,10 @@
     "wikilinks",
     "daily-notes",
     "tags",
-    "search"
+    "search",
+    "tasks",
+    "agent-orchestration",
+    "task-queue"
   ],
   "author": "t-rhex",
   "license": "MIT",

@@ -11,6 +11,7 @@ An MCP (Model Context Protocol) server that gives AI assistants direct filesyste
 - **Tag management** — read, add, remove tags from frontmatter (deduplicates automatically)
 - **Daily notes** — get, create, or append by date (`today`, `yesterday`, `2025-03-08`, etc.)
 - **Git sync (optional)** — commit, pull, push, and full sync via git CLI. Auto-sync after every write pushes to remote automatically. Git is entirely optional — the server works perfectly without it.
+- **Task orchestration** — create, claim, update, and complete tasks with structured frontmatter. Turn your vault into an agent task queue with dependency tracking, scope isolation, and auto-generated dashboards.
 
 ## Installation
 
@@ -200,6 +201,141 @@ message: "update notes"          # optional commit message
 | `remote_add` | Add a git remote |
 | `remote_list` | List configured remotes |
 
+### `create_task`
+
+Create a new task in the vault's task queue. Tasks are markdown notes in the `Tasks/` folder with structured YAML frontmatter.
+
+```
+title: "Implement auth module"
+description: "Build JWT-based authentication for the API."
+priority: "high"                 # "critical" | "high" | "medium" | "low"
+type: "code"                     # "code" | "research" | "writing" | "maintenance" | "other"
+due: "2026-03-15"               # optional deadline
+depends_on: ["task-abc-123"]     # task IDs that must complete first
+context_notes: ["Projects/api"]  # vault notes with relevant context
+scope: ["src/auth.ts"]           # files this task can modify
+acceptance_criteria: ["Tests pass", "Docs written"]
+source: "github-issue-42"       # where this task came from
+timeout_minutes: 120             # max time before agent is considered stuck
+```
+
+### `list_tasks`
+
+Query tasks by status, priority, type, or assignee.
+
+```
+status: "pending"                # filter by status, or "all"
+priority: "high"                 # filter by priority, or "all"
+type: "code"                     # filter by type, or "all"
+assignee: "claude-code-1"       # filter by assignee
+unassigned_only: true            # only unclaimed tasks
+limit: 50                        # max results
+include_completed: false         # include terminal states
+```
+
+### `claim_task`
+
+Atomically claim a pending task for an agent. Prevents race conditions — if two agents try to claim the same task, the second gets a `TASK_ALREADY_CLAIMED` error.
+
+```
+task_id: "task-2026-03-09-abc123"
+assignee: "claude-code-1"
+```
+
+Checks dependency completion before allowing claim. Blocked tasks cannot be claimed until all `depends_on` tasks are completed.
+
+### `update_task`
+
+Update a task's status, priority, or append progress to the Agent Log.
+
+```
+task_id: "task-2026-03-09-abc123"
+status: "in_progress"            # validates state transitions
+log_entry: "Started implementation. Found 3 API endpoints to modify."
+priority: "critical"             # change priority if needed
+```
+
+Valid status transitions are enforced:
+- `pending` → `claimed`, `blocked`, `cancelled`
+- `claimed` → `in_progress`, `pending`, `blocked`, `cancelled`
+- `in_progress` → `completed`, `failed`, `blocked`, `pending`, `cancelled`
+- `blocked` → `pending`, `cancelled`
+- `completed`, `failed`, `cancelled` → (terminal, no transitions)
+
+### `complete_task`
+
+Mark a task as completed (or failed/cancelled) with a summary and deliverables.
+
+```
+task_id: "task-2026-03-09-abc123"
+summary: "Auth module implemented with JWT support."
+deliverables: ["src/auth.ts", "src/auth.test.ts", "https://github.com/org/repo/pull/42"]
+status: "completed"              # "completed" | "failed" | "cancelled"
+error_reason: "Missing dependency"  # if status is "failed"
+```
+
+Automatically unblocks dependent tasks when a task is completed — sets them from `blocked` to `pending`.
+
+## Agent Workflow
+
+The task tools are designed for AI agent orchestration. Here's the typical workflow:
+
+```
+1. Human/agent creates a task:       create_task(title: "Fix login bug", ...)
+2. Agent finds available work:        list_tasks(status: "pending", unassigned_only: true)
+3. Agent claims a task:               claim_task(task_id: "task-...", assignee: "claude-1")
+4. Agent starts work:                 update_task(task_id: "task-...", status: "in_progress")
+5. Agent logs progress:               update_task(task_id: "task-...", log_entry: "Found root cause...")
+6. Agent finishes:                    complete_task(task_id: "task-...", summary: "Fixed!", deliverables: [...])
+```
+
+### Task Note Structure
+
+Tasks are stored as markdown notes in the `Tasks/` folder (configurable via `TASKS_FOLDER`):
+
+```markdown
+---
+id: task-2026-03-09-abc123
+title: Implement auth module
+status: in_progress
+priority: high
+type: code
+assignee: claude-code-1
+created: 2026-03-09
+updated: 2026-03-09
+depends_on: []
+scope:
+  - src/auth.ts
+context_notes:
+  - Projects/api-design
+timeout_minutes: 120
+tags:
+  - auth
+  - api
+---
+
+## Description
+
+Build JWT-based authentication for the API.
+
+## Acceptance Criteria
+
+- [ ] Tests pass
+- [ ] Docs written
+
+## Agent Log
+
+- **[2026-03-09 14:30:00]** Starting implementation. Found 3 endpoints to modify.
+- **[2026-03-09 15:45:00] [COMPLETED]** Auth module implemented with JWT support.
+
+## Deliverables
+
+- src/auth.ts
+- src/auth.test.ts
+```
+
+A `DASHBOARD.md` is auto-generated in the tasks folder after every mutation, showing summary counts, active tasks, pending queue, blocked tasks, and recent completions.
+
 ## Configuration
 
 All configuration is via environment variables.
@@ -221,6 +357,7 @@ All configuration is via environment variables.
 | `MAX_SEARCH_RESULTS` | `50` | Maximum search results returned |
 | `SEARCH_TIMEOUT_MS` | `30000` | Search timeout in milliseconds |
 | `NOTE_EXTENSIONS` | `.md,.markdown` | File extensions treated as notes (comma-separated) |
+| `TASKS_FOLDER` | `Tasks` | Subfolder for task notes (relative to vault root) |
 
 ### Optional — Git Sync
 
@@ -307,6 +444,8 @@ src/
 ├── vault.ts              # Filesystem operations (path safety, atomic writes, list, search)
 ├── frontmatter.ts        # YAML frontmatter parse/serialize, tag extraction
 ├── git.ts                # Git CLI wrapper with locking and timeouts
+├── task-schema.ts        # Task types, ID generation, validation, body template
+├── task-dashboard.ts     # Task scanning, dashboard generation
 └── tools/
     ├── read-note.ts
     ├── create-note.ts
@@ -317,7 +456,12 @@ src/
     ├── manage-tags.ts
     ├── daily-note.ts
     ├── wikilinks.ts
-    └── git-sync.ts
+    ├── git-sync.ts
+    ├── create-task.ts    # Create tasks with structured frontmatter
+    ├── list-tasks.ts     # Query tasks by filters
+    ├── claim-task.ts     # Atomic task claiming with race condition prevention
+    ├── update-task.ts    # Update status, append to agent log
+    └── complete-task.ts  # Mark done, link deliverables, unblock dependents
 ```
 
 ## License

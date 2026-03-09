@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.0] - 2026-03-09
+
+### Added
+- **Task orchestration system** — 5 new MCP tools for AI agent task management:
+  - `create_task` — create tasks with structured YAML frontmatter (priority, type, dependencies, scope, acceptance criteria)
+  - `list_tasks` — query tasks by status, priority, type, assignee with filtering and sorting
+  - `claim_task` — atomically claim pending tasks with race condition prevention and dependency checking
+  - `update_task` — update status/priority/type, append timestamped entries to Agent Log, with state transition validation
+  - `complete_task` — mark tasks done/failed/cancelled with summary, deliverables, and automatic unblocking of dependent tasks
+- **Task schema** — structured frontmatter with `id`, `title`, `status`, `priority`, `type`, `assignee`, `depends_on`, `scope`, `context_notes`, `timeout_minutes`, and more
+- **Auto-generated dashboard** — `DASHBOARD.md` refreshed after every task mutation with summary counts, active/pending/blocked/completed sections
+- **Dependency tracking** — tasks with `depends_on` are auto-blocked and can't be claimed until dependencies complete; completing a task automatically unblocks dependents
+- **Status transition validation** — enforces valid state machine transitions (e.g. can't jump from `pending` to `completed`)
+- **Scope isolation** — each task defines `scope[]` (file paths it can modify) to prevent agent conflicts
+- **`TASKS_FOLDER` environment variable** — configurable task folder location (default: `Tasks`)
+- 76 new integration tests for task tools (110 total, up from 34)
+
 ## [0.1.2] - 2026-03-09
 
 ### Fixed

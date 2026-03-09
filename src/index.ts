@@ -20,6 +20,7 @@
  *   GIT_BRANCH                 (optional) — Default git branch name (default: "main")
  *   GIT_TIMEOUT_MS             (optional) — Timeout for git operations (default: 30000)
  *   GIT_PULL_REBASE            (optional) — Use --rebase on pull (default: true)
+ *   TASKS_FOLDER               (optional) — Subfolder for task notes (default: "Tasks")
  */
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -42,6 +43,11 @@ import { manageTagsSchema, manageTagsHandler } from "./tools/manage-tags.js";
 import { dailyNoteSchema, dailyNoteHandler } from "./tools/daily-note.js";
 import { gitSyncSchema, gitSyncHandler } from "./tools/git-sync.js";
 import { wikilinksSchema, wikilinksHandler } from "./tools/wikilinks.js";
+import { createTaskSchema, createTaskHandler } from "./tools/create-task.js";
+import { listTasksSchema, listTasksHandler } from "./tools/list-tasks.js";
+import { claimTaskSchema, claimTaskHandler } from "./tools/claim-task.js";
+import { updateTaskSchema, updateTaskHandler } from "./tools/update-task.js";
+import { completeTaskSchema, completeTaskHandler } from "./tools/complete-task.js";
 
 // ─── Bootstrap ──────────────────────────────────────────────────────
 
@@ -204,6 +210,52 @@ async function main() {
     "[[note#heading]], and [[note#^blockid]] syntax.",
     wikilinksSchema,
     wikilinksHandler(vault),
+  );
+
+  // ─── Task Orchestration Tools ─────────────────────────────────
+
+  server.tool(
+    "create_task",
+    "Create a new task in the vault's task queue with structured YAML frontmatter. " +
+    "Tasks are markdown notes in the Tasks/ folder. Supports priority, type, dependencies, " +
+    "scope isolation, context notes, and acceptance criteria. Auto-refreshes the task dashboard.",
+    createTaskSchema,
+    createTaskHandler(vault, config),
+  );
+
+  server.tool(
+    "list_tasks",
+    "Query tasks by status, priority, type, or assignee. Returns a filtered, sorted list " +
+    "of tasks from the vault's task queue. Use to find available work or monitor progress.",
+    listTasksSchema,
+    listTasksHandler(vault, config),
+  );
+
+  server.tool(
+    "claim_task",
+    "Atomically claim a pending task for an agent. Sets status to 'claimed' and records the assignee. " +
+    "Prevents race conditions — if two agents try to claim the same task, the second gets a clear error. " +
+    "Checks dependency completion before allowing claim.",
+    claimTaskSchema,
+    claimTaskHandler(vault, config),
+  );
+
+  server.tool(
+    "update_task",
+    "Update a task's status, priority, type, or assignee. Append progress entries to the Agent Log. " +
+    "Validates status transitions (e.g. cannot go from 'pending' to 'completed' — must claim first). " +
+    "Use this to move tasks through the workflow.",
+    updateTaskSchema,
+    updateTaskHandler(vault, config),
+  );
+
+  server.tool(
+    "complete_task",
+    "Mark a task as completed (or failed/cancelled) with a summary and optional deliverables. " +
+    "Records completed_at timestamp, appends to Agent Log, links deliverable files/URLs, " +
+    "and automatically unblocks dependent tasks.",
+    completeTaskSchema,
+    completeTaskHandler(vault, config),
   );
 
   // ─── Connect Transport ──────────────────────────────────────────
