@@ -46,6 +46,36 @@ Add to your `claude_desktop_config.json`:
 }
 ```
 
+### opencode
+
+Add to `~/.config/opencode/opencode.json` (opencode has no `env` field — use `sh -c`):
+
+```json
+{
+  "mcp": {
+    "obsidian": {
+      "type": "local",
+      "command": ["sh", "-c", "OBSIDIAN_VAULT_PATH=/path/to/your/vault GIT_AUTO_SYNC=true npx -y mcp-obsidian-vault"],
+      "enabled": true
+    }
+  }
+}
+```
+
+### Codex CLI
+
+Add to `~/.codex/config.toml`:
+
+```toml
+[mcp_servers.obsidian]
+command = "npx"
+args = ["-y", "mcp-obsidian-vault"]
+
+[mcp_servers.obsidian.env]
+OBSIDIAN_VAULT_PATH = "/path/to/your/vault"
+GIT_AUTO_SYNC = "true"
+```
+
 ### With git auto-sync
 
 Enable `GIT_AUTO_SYNC` to automatically commit and push to remote after every write. Requires the vault to be a git repo with a remote configured. If no remote is configured, changes are committed locally only.
