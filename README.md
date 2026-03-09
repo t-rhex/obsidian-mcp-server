@@ -251,6 +251,48 @@ That's it. The agent now has full access to your vault through 27 MCP tools. Kee
 
 ### 3. Real-World Workflows
 
+#### Scaffold a new project
+
+Tell your agent what you want to build. It handles the rest:
+
+```
+"I need to build a REST API for user management. Set up a project with tasks for:
+  1. Design the database schema (research)
+  2. Set up Express with TypeScript (code)
+  3. Implement CRUD endpoints (code, depends on 1 and 2)
+  4. Add JWT authentication (code, depends on 3)
+  5. Write integration tests (code, depends on 4)
+  6. Write API documentation (writing)"
+```
+
+The agent calls `create_project` and your vault now has:
+
+```
+Tasks/
+├── DASHBOARD.md                                          # auto-generated summary
+└── user-management-api/                                  # project subfolder
+    ├── proj-2026-03-09-a1b2c3-user-management-api.md     # project note
+    ├── task-2026-03-09-d4e5f6-design-database-schema.md  # pending (no deps)
+    ├── task-2026-03-09-g7h8i9-set-up-express.md          # pending (no deps)
+    ├── task-2026-03-09-j0k1l2-implement-crud.md          # blocked (waits on 1, 2)
+    ├── task-2026-03-09-m3n4o5-add-jwt-auth.md            # blocked (waits on 3)
+    ├── task-2026-03-09-p6q7r8-write-tests.md             # blocked (waits on 4)
+    └── task-2026-03-09-s9t0u1-write-api-docs.md          # pending (no deps)
+```
+
+Each task file has structured frontmatter (status, priority, dependencies, scope) and sections for description, acceptance criteria, and an agent log. The dashboard shows what's claimable, what's blocked, and overall progress.
+
+From here, the agent (or multiple agents) can claim tasks, work them, and mark them done. Blocked tasks auto-unblock as their dependencies complete.
+
+```
+"Claim the database schema task and start working on it."
+```
+
+```
+"What's the project status?"
+→ 1/6 complete (17%), 2 in progress, 3 blocked
+```
+
 #### Save context before ending a session
 
 When you're wrapping up a session, tell your agent:
@@ -275,26 +317,18 @@ Start any new session with:
 
 The agent gets back: active projects, in-progress tasks, blockers, recent decisions, recent discoveries, and pending work. No manual briefing needed.
 
-#### Break a feature into tasks
+#### Grow a project mid-flight
+
+Requirements change. Append new tasks to an existing project without recreating it:
 
 ```
-"Create a project called 'Payment Integration' with these tasks:
-  1. Research Stripe API (research)
-  2. Implement checkout flow (code, depends on 1)
-  3. Add webhook handler (code, depends on 1)
-  4. Write integration tests (code, depends on 2 and 3)
-  5. Update API docs (writing)"
+"Add these tasks to the User Management API project:
+  - Add rate limiting middleware (code)
+  - Add password reset flow (code, depends on JWT auth)
+  - Security audit (research, depends on rate limiting and password reset)"
 ```
 
-This creates a project folder with 5 task files, a dependency graph, and a dashboard. Tasks 1 and 5 are immediately claimable; the rest auto-unblock as dependencies complete.
-
-#### Append to an existing project
-
-```
-"Add these tasks to the Payment Integration project:
-  - Add retry logic for failed charges
-  - Security audit of payment flow (depends on retry logic)"
-```
+New tasks slot into the existing dependency graph. The dashboard updates automatically.
 
 #### Multi-session continuity
 
