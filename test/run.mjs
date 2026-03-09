@@ -1863,13 +1863,13 @@ section("Project Subfolders — backward compat: legacy flat project append stay
 
   // The critical assertion: new task should be at Tasks/ root (2 path parts), NOT in a subfolder
   const newTaskPath = data.tasks[0].path;
-  const newTaskParts = newTaskPath.split("/");
+  const newTaskParts = newTaskPath.split(/[/\\]/);
   assert(
     newTaskParts.length === 2,
     "appended task stays at root level for legacy flat project (2 path parts): " + newTaskPath,
   );
   assert(
-    !newTaskPath.includes("/legacy-flat-project/"),
+    !newTaskPath.includes("legacy-flat-project/") && !newTaskPath.includes("legacy-flat-project\\"),
     "appended task NOT in a subfolder: " + newTaskPath,
   );
 
@@ -1882,7 +1882,7 @@ section("Project Subfolders — backward compat: legacy flat project append stay
 
   // Both tasks should be at root level (not in subfolder)
   for (const t of projTasks) {
-    const parts = t.path.split("/");
+    const parts = t.path.split(/[/\\]/);
     assert(parts.length === 2, "legacy project task at root level: " + t.path);
   }
 }

@@ -217,7 +217,7 @@ export const createProjectHandler = (vault: Vault, config: Config) =>
         projectPath = projectEntry.path;
         // Derive the project folder from the existing project note's path
         // e.g. "Tasks/auth-rewrite/proj-xxx-auth-rewrite.md" → "Tasks/auth-rewrite"
-        const pathParts = projectEntry.path.split("/");
+        const pathParts = projectEntry.path.split(/[/\\]/);
         if (pathParts.length >= 3) {
           // Has subfolder structure — use the parent directory
           projectFolder = pathParts.slice(0, -1).join("/");
