@@ -518,9 +518,11 @@ project: "proj-..."              # filter by project
 ```
 task_id: "task-2026-03-09-abc123"
 assignee: "claude-code-1"
+worktree_branch: "worktree-auth-api"      # optional — for parallel multi-agent work
+worktree_path: "/repo/.claude/worktrees/auth-api"  # optional
 ```
 
-Blocks if dependencies aren't met. Two agents claiming the same task &rarr; second gets `TASK_ALREADY_CLAIMED`.
+Blocks if dependencies aren't met. Two agents claiming the same task &rarr; second gets `TASK_ALREADY_CLAIMED`. Worktree fields are optional — pass them when using git worktrees for parallel development.
 </details>
 
 <details>
@@ -851,6 +853,92 @@ stateDiagram-v2
     cancelled --> pending: reactivate
 
     completed --> [*]
+```
+
+---
+
+## Multi-Agent Parallel Development
+
+Run multiple AI agents on the same codebase simultaneously, each in its own git worktree, with the vault coordinating who's working on what.
+
+**The architecture:** Git worktrees provide filesystem isolation. The vault provides coordination metadata. No conflicts, no stepping on each other's work.
+
+### How It Works
+
+1. **Claim a task with worktree metadata** — when an agent claims a task, it records the branch and worktree path
+2. **Work in isolation** — each agent works in its own directory on its own branch
+3. **Vault tracks everything** — `get_context` shows which agents are on which branches, `list_tasks` includes worktree info
+4. **Complete and PR** — when done, `complete_task` tells you the branch is ready for a pull request
+
+### With Claude Code (Recommended)
+
+Claude Code v2.1.49+ has native worktree support via `--worktree` (`-w`):
+
+```bash
+# Terminal 1: Agent works on auth API
+claude --worktree design-api
+# → "Claim the 'Design API' task with worktree_branch 'worktree-design-api'"
+
+# Terminal 2: Agent works on documentation
+claude --worktree update-docs
+# → "Claim the 'Update docs' task with worktree_branch 'worktree-update-docs'"
+```
+
+Claude Code creates worktrees at `<repo>/.claude/worktrees/<name>` with branch `worktree-<name>`. Each agent works in its own directory, on its own branch.
+
+### With opencode / Codex CLI
+
+Create worktrees manually, then point the agent at the right directory:
+
+```bash
+# Create worktrees
+git worktree add .worktrees/auth-api -b worktree-auth-api
+git worktree add .worktrees/update-docs -b worktree-update-docs
+
+# Start agents in their worktrees
+cd .worktrees/auth-api && opencode
+# → "Claim task X with worktree_branch 'worktree-auth-api' and worktree_path '$(pwd)'"
+```
+
+### What the Vault Tracks
+
+When you claim a task with worktree fields:
+
+```yaml
+# Task frontmatter after claim
+status: claimed
+assignee: claude-code-1
+worktree_branch: worktree-auth-api
+worktree_path: /repo/.claude/worktrees/auth-api
+```
+
+`get_context` includes worktree info for all active work:
+
+```json
+{
+  "active_work": [
+    {
+      "id": "task-2026-03-09-abc123",
+      "title": "Design API endpoints",
+      "assignee": "claude-code-1",
+      "worktree_branch": "worktree-design-api",
+      "worktree_path": "/repo/.claude/worktrees/design-api"
+    },
+    {
+      "id": "task-2026-03-09-def456",
+      "title": "Update documentation",
+      "assignee": "claude-code-2",
+      "worktree_branch": "worktree-update-docs",
+      "worktree_path": "/repo/.claude/worktrees/update-docs"
+    }
+  ]
+}
+```
+
+When a task completes, the response tells you the branch is ready:
+
+```
+Task "Design API endpoints" completed. Branch `worktree-design-api` is ready for PR.
 ```
 
 ---

@@ -238,6 +238,9 @@ export const completeTaskHandler = (vault: Vault, config: Config) =>
       if (needsReview) messageParts.push("Sent to review queue (review_required or high risk).");
       if (unblockedTasks.length > 0) messageParts.push(`Unblocked: ${unblockedTasks.join(", ")}`);
       if (cancelledTasks.length > 0) messageParts.push(`Cancelled by routing: ${cancelledTasks.join(", ")}`);
+      if (task.worktree_branch && effectiveStatus === "completed") {
+        messageParts.push(`Branch \`${task.worktree_branch}\` is ready for PR.`);
+      }
 
       return {
         content: [{
@@ -253,6 +256,7 @@ export const completeTaskHandler = (vault: Vault, config: Config) =>
             deliverables: input.deliverables ?? [],
             unblocked_tasks: unblockedTasks,
             cancelled_tasks: cancelledTasks.length > 0 ? cancelledTasks : undefined,
+            worktree_branch: task.worktree_branch ?? null,
             path: entry.path,
             message: messageParts.join(" "),
           }, null, 2),

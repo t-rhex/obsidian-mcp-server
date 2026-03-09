@@ -45,6 +45,29 @@ export function parseNote(raw: string): ParsedNote {
 }
 
 /**
+ * Recursively strip `undefined` values from an object to prevent
+ * js-yaml dump crashes ("unacceptable kind of an object to dump [object Undefined]").
+ */
+function stripUndefined(obj: Record<string, unknown>): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(obj)) {
+    if (value === undefined) continue;
+    if (Array.isArray(value)) {
+      result[key] = value.map((item) =>
+        item !== null && typeof item === "object" && !Array.isArray(item)
+          ? stripUndefined(item as Record<string, unknown>)
+          : item,
+      );
+    } else if (value !== null && typeof value === "object") {
+      result[key] = stripUndefined(value as Record<string, unknown>);
+    } else {
+      result[key] = value;
+    }
+  }
+  return result;
+}
+
+/**
  * Serialize frontmatter and content back into a raw note string.
  */
 export function serializeNote(
@@ -55,8 +78,11 @@ export function serializeNote(
 
   if (!hasFm) return content;
 
+  // Strip undefined values at all levels to prevent js-yaml crash
+  const cleanFm = stripUndefined(frontmatter);
+
   // EDGE-9: Trim leading newlines from content to prevent accumulating blank lines
-  const result = matter.stringify(content.replace(/^\n+/, ''), frontmatter);
+  const result = matter.stringify(content.replace(/^\n+/, ''), cleanFm);
   return result;
 }
 

@@ -30,11 +30,17 @@ export const claimTaskSchema = {
   assignee: z.string().describe(
     "Identifier for the agent claiming this task (e.g. 'claude-code-1', 'agent-research').",
   ),
+  worktree_branch: z.string().optional().describe(
+    "Git branch name for this agent's worktree (e.g. 'worktree-feature-auth'). Used to track parallel work across agents.",
+  ),
+  worktree_path: z.string().optional().describe(
+    "Filesystem path to the worktree directory (e.g. '/repo/.claude/worktrees/feature-auth').",
+  ),
 };
 
 export const claimTaskHandler = (vault: Vault, config: Config) =>
   safeToolHandler(
-    async (input: { task_id: string; assignee: string }) => {
+    async (input: { task_id: string; assignee: string; worktree_branch?: string; worktree_path?: string }) => {
       const tasksFolder = config.tasksFolder;
 
       // Find the task file by ID
@@ -114,13 +120,21 @@ export const claimTaskHandler = (vault: Vault, config: Config) =>
       const parsed = parseNote(raw);
 
       const now = nowISO();
-      const updatedFm = {
+      const updatedFm: Record<string, unknown> = {
         ...parsed.frontmatter,
         status: "claimed",
         assignee: input.assignee,
         claimed_at: now,
         updated: now,
       };
+
+      // Store worktree metadata if provided
+      if (input.worktree_branch) {
+        updatedFm.worktree_branch = input.worktree_branch;
+      }
+      if (input.worktree_path) {
+        updatedFm.worktree_path = input.worktree_path;
+      }
 
       const newContent = serializeNote(updatedFm, parsed.content);
       await vault.writeNote(entry.path, newContent, { overwrite: true });
@@ -143,7 +157,9 @@ export const claimTaskHandler = (vault: Vault, config: Config) =>
             context_notes: task.context_notes,
             scope: task.scope,
             timeout_minutes: task.timeout_minutes,
-            message: `Task "${task.title}" claimed by ${input.assignee}. Read the task note and context_notes to begin work.`,
+            worktree_branch: input.worktree_branch ?? null,
+            worktree_path: input.worktree_path ?? null,
+            message: `Task "${task.title}" claimed by ${input.assignee}.${input.worktree_branch ? ` Working on branch: ${input.worktree_branch}` : ""} Read the task note and context_notes to begin work.`,
           }, null, 2),
         }],
       };

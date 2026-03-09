@@ -157,6 +157,8 @@ export const listTasksHandler = (vault: Vault, config: Config) =>
                 is_overdue,
                 retry_count: entry.task.retry_count,
                 project: entry.task.project || null,
+                worktree_branch: entry.task.worktree_branch ?? null,
+                worktree_path: entry.task.worktree_path ?? null,
                 path: entry.path,
               };
             }),

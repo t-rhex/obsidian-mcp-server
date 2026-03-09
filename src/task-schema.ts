@@ -65,6 +65,9 @@ export interface TaskFrontmatter {
   escalation_status: "none" | "escalated";
   // ─── Conditional workflow fields ──────────────────────────────
   routing_rules?: RoutingRule[];
+  // ─── Worktree coordination fields ─────────────────────────────
+  worktree_branch?: string;
+  worktree_path?: string;
 }
 
 export const VALID_STATUSES: TaskStatus[] = [
@@ -174,6 +177,9 @@ export function buildTaskFrontmatter(
     escalation_status: overrides.escalation_status ?? "none",
     // Conditional workflows
     routing_rules: overrides.routing_rules,
+    // Worktree coordination
+    worktree_branch: overrides.worktree_branch,
+    worktree_path: overrides.worktree_path,
   };
 }
 
@@ -245,6 +251,9 @@ export function parseTaskFrontmatter(
             typeof r === "object" && r !== null && "condition" in r && "value" in r && "activate" in r,
         )
       : undefined,
+    // Worktree coordination
+    worktree_branch: fm.worktree_branch ? String(fm.worktree_branch) : undefined,
+    worktree_path: fm.worktree_path ? String(fm.worktree_path) : undefined,
   };
 }
 

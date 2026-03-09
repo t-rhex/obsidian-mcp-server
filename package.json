@@ -1,6 +1,6 @@
 {
   "name": "mcp-obsidian-vault",
-  "version": "0.3.2",
+  "version": "0.4.0",
   "description": "MCP server for Obsidian vaults — 27 tools for notes, multi-agent task orchestration, HITL review, usage tracking, and git sync. No Obsidian required.",
   "main": "build/index.js",
   "type": "module",
