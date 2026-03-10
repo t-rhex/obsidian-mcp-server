@@ -120,7 +120,12 @@ export const getContextHandler = (vault: Vault, config: Config) =>
         const total = subTasks.length;
         const activeAgents = subTasks
           .filter((t) => t.task.assignee && ["claimed", "in_progress"].includes(t.task.status))
-          .map((t) => ({ agent: t.task.assignee, task: t.task.title, status: t.task.status }));
+          .map((t) => ({
+            agent: t.task.assignee,
+            task: t.task.title,
+            status: t.task.status,
+            worktree_branch: t.task.worktree_branch ?? null,
+          }));
 
         return {
           id: proj.task.id,
@@ -143,6 +148,8 @@ export const getContextHandler = (vault: Vault, config: Config) =>
           status: t.task.status,
           priority: t.task.priority,
           assignee: t.task.assignee || null,
+          worktree_branch: t.task.worktree_branch ?? null,
+          worktree_path: t.task.worktree_path ?? null,
           project: t.task.project || null,
           path: t.path,
         }));

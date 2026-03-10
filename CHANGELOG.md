@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.0] - 2026-03-09
+
+### Added
+- **Worktree-aware task coordination** — track which agent is working on which git branch/worktree for parallel multi-agent development:
+  - `claim_task` accepts optional `worktree_branch` and `worktree_path` parameters
+  - `list_tasks` includes `worktree_branch` and `worktree_path` in task output
+  - `get_context` shows worktree branches for all in-progress work and active project agents
+  - `complete_task` response includes `worktree_branch` and a "ready for PR" message when present
+  - New `TaskFrontmatter` fields: `worktree_branch`, `worktree_path`
+- **Multi-Agent Parallel Development** section in README documenting Claude Code `--worktree`, opencode/Codex manual setup, and end-to-end coordination workflow
+
+### Fixed
+- **YAML serialization crash** — `serializeNote` now recursively strips `undefined` values from frontmatter before passing to js-yaml, preventing "unacceptable kind of an object to dump [object Undefined]" crashes. This hardening applies to all note writes, not just worktree fields.
+
+### Tests
+- 33 new worktree metadata tests covering claim with/without worktree, list output, get_context, complete response, and frontmatter round-trip (375 total assertions)
+
 ## [0.3.2] - 2026-03-09
 
 ### Fixed

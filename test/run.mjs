@@ -1887,6 +1887,171 @@ section("Project Subfolders — backward compat: legacy flat project append stay
   }
 }
 
+// ─── Worktree Metadata Coordination Tests ───────────────────────────
+
+section("Worktree Metadata — claim with worktree fields");
+{
+  // Create a fresh task for worktree testing
+  const createHandler = createTaskHandler(vault, config);
+  const createResult = await createHandler({
+    title: "Build auth API",
+    description: "Implement authentication endpoints",
+    type: "code",
+  });
+  const createData = JSON.parse(createResult.content[0].text);
+  const wtTaskId = createData.task.id;
+
+  // Claim with worktree metadata
+  const claimHandler = claimTaskHandler(vault, config);
+  const result = await claimHandler({
+    task_id: wtTaskId,
+    assignee: "claude-worktree-1",
+    worktree_branch: "worktree-auth-api",
+    worktree_path: "/repo/.claude/worktrees/auth-api",
+  });
+  assert(!result.isError, "claim with worktree succeeds");
+  const data = JSON.parse(result.content[0].text);
+  assert(data.worktree_branch === "worktree-auth-api", "worktree_branch in claim response");
+  assert(data.worktree_path === "/repo/.claude/worktrees/auth-api", "worktree_path in claim response");
+  assert(data.message.includes("worktree-auth-api"), "claim message includes branch name");
+
+  // Verify frontmatter was persisted
+  const tasks = await scanTasks(vault, "Tasks");
+  const wtTask = tasks.find((t) => t.task.id === wtTaskId);
+  assert(wtTask, "worktree task found in scan");
+  assert(wtTask.task.worktree_branch === "worktree-auth-api", "worktree_branch persisted in frontmatter");
+  assert(wtTask.task.worktree_path === "/repo/.claude/worktrees/auth-api", "worktree_path persisted in frontmatter");
+}
+
+section("Worktree Metadata — claim without worktree fields (backward compat)");
+{
+  const createHandler = createTaskHandler(vault, config);
+  const createResult = await createHandler({
+    title: "Write docs",
+    description: "Write API documentation",
+    type: "writing",
+  });
+  const createData = JSON.parse(createResult.content[0].text);
+  const noWtTaskId = createData.task.id;
+
+  const claimHandler = claimTaskHandler(vault, config);
+  const result = await claimHandler({
+    task_id: noWtTaskId,
+    assignee: "agent-docs",
+  });
+  assert(!result.isError, "claim without worktree succeeds");
+  const data = JSON.parse(result.content[0].text);
+  assert(data.worktree_branch === null, "worktree_branch is null when not provided");
+  assert(data.worktree_path === null, "worktree_path is null when not provided");
+}
+
+section("Worktree Metadata — list_tasks includes worktree info");
+{
+  const listHandler = listTasksHandler(vault, config);
+  const result = await listHandler({ status: "claimed" });
+  const data = JSON.parse(result.content[0].text);
+
+  // Find the task with worktree info
+  const wtTask = data.tasks.find((t) => t.worktree_branch === "worktree-auth-api");
+  assert(wtTask, "worktree task found in list");
+  assert(wtTask.worktree_path === "/repo/.claude/worktrees/auth-api", "worktree_path in list output");
+
+  // Find the task without worktree info
+  const noWtTask = data.tasks.find((t) => t.title === "Write docs");
+  assert(noWtTask, "non-worktree task found in list");
+  assert(noWtTask.worktree_branch === null, "worktree_branch null for non-worktree task in list");
+  assert(noWtTask.worktree_path === null, "worktree_path null for non-worktree task in list");
+}
+
+section("Worktree Metadata — get_context shows worktree branches for active work");
+{
+  // Move the worktree task to in_progress first
+  const updateHandler = updateTaskHandler(vault, config);
+  const tasks = await scanTasks(vault, "Tasks");
+  const wtTask = tasks.find((t) => t.task.worktree_branch === "worktree-auth-api");
+  await updateHandler({ task_id: wtTask.task.id, status: "in_progress" });
+
+  const ctxHandler = getContextHandler(vault, config);
+  const result = await ctxHandler({ hours: 48 });
+  const data = JSON.parse(result.content[0].text);
+
+  assert(data.active_work, "active_work present in context");
+  const activeWt = data.active_work.find((w) => w.worktree_branch === "worktree-auth-api");
+  assert(activeWt, "worktree task appears in active_work");
+  assert(activeWt.worktree_path === "/repo/.claude/worktrees/auth-api", "worktree_path in context active_work");
+}
+
+section("Worktree Metadata — complete_task includes worktree_branch in response");
+{
+  const tasks = await scanTasks(vault, "Tasks");
+  const wtTask = tasks.find((t) => t.task.worktree_branch === "worktree-auth-api");
+
+  const completeHandler = completeTaskHandler(vault, config);
+  const result = await completeHandler({
+    task_id: wtTask.task.id,
+    summary: "Auth API implemented with JWT endpoints.",
+    deliverables: ["src/auth.ts"],
+  });
+  assert(!result.isError, "complete worktree task succeeded");
+  const data = JSON.parse(result.content[0].text);
+  assert(data.worktree_branch === "worktree-auth-api", "worktree_branch in complete response");
+  assert(data.message.includes("worktree-auth-api"), "complete message mentions branch");
+  assert(data.message.includes("ready for PR"), "complete message says ready for PR");
+}
+
+section("Worktree Metadata — complete_task without worktree has null branch");
+{
+  const tasks = await scanTasks(vault, "Tasks");
+  const noWtTask = tasks.find((t) => t.task.title === "Write docs");
+
+  // Move to in_progress first
+  const updateHandler = updateTaskHandler(vault, config);
+  await updateHandler({ task_id: noWtTask.task.id, status: "in_progress" });
+
+  const completeHandler = completeTaskHandler(vault, config);
+  const result = await completeHandler({
+    task_id: noWtTask.task.id,
+    summary: "Docs written.",
+  });
+  assert(!result.isError, "complete non-worktree task succeeded");
+  const data = JSON.parse(result.content[0].text);
+  assert(data.worktree_branch === null, "worktree_branch null for non-worktree complete");
+  assert(!data.message.includes("ready for PR"), "no PR message for non-worktree task");
+}
+
+section("Worktree Metadata — parseTaskFrontmatter round-trip");
+{
+  const fm = buildTaskFrontmatter({
+    title: "Worktree round-trip test",
+    worktree_branch: "worktree-test-branch",
+    worktree_path: "/tmp/worktree/test",
+  });
+  assert(fm.worktree_branch === "worktree-test-branch", "buildTaskFrontmatter preserves worktree_branch");
+  assert(fm.worktree_path === "/tmp/worktree/test", "buildTaskFrontmatter preserves worktree_path");
+
+  // Serialize and re-parse
+  const body = buildTaskBody("Test description");
+  const serialized = serializeNote(fm, body);
+  const parsed = parseNote(serialized);
+  const reparsed = parseTaskFrontmatter(parsed.frontmatter);
+  assert(reparsed.worktree_branch === "worktree-test-branch", "round-trip preserves worktree_branch");
+  assert(reparsed.worktree_path === "/tmp/worktree/test", "round-trip preserves worktree_path");
+}
+
+section("Worktree Metadata — parseTaskFrontmatter without worktree fields");
+{
+  const fm = buildTaskFrontmatter({ title: "No worktree fields" });
+  assert(fm.worktree_branch === undefined, "worktree_branch undefined when not set");
+  assert(fm.worktree_path === undefined, "worktree_path undefined when not set");
+
+  const body = buildTaskBody("Test description");
+  const serialized = serializeNote(fm, body);
+  const parsed = parseNote(serialized);
+  const reparsed = parseTaskFrontmatter(parsed.frontmatter);
+  assert(reparsed.worktree_branch === undefined, "round-trip preserves undefined worktree_branch");
+  assert(reparsed.worktree_path === undefined, "round-trip preserves undefined worktree_path");
+}
+
 // ─── Cleanup & Report ───────────────────────────────────────────────
 
 rmSync(VAULT, { recursive: true, force: true });
