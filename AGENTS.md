@@ -4,7 +4,7 @@
 
 ```sh
 npm install && npm run build
-npm test                    # 334 integration tests (node test/run.mjs)
+npm test                    # 375 integration tests (node test/run.mjs)
 npm run dev                 # tsc --watch
 ```
 
