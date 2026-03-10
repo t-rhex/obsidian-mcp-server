@@ -227,6 +227,79 @@ OBSIDIAN_VAULT_PATH=/path/to/vault node build/index.js
 ```
 </details>
 
+### Updating
+
+`npx -y mcp-obsidian-vault` always fetches the latest version automatically. If you've cached a specific version, clear the npx cache:
+
+```bash
+# Force npx to fetch the latest
+npx -y mcp-obsidian-vault@latest
+
+# Or clear the npx cache entirely
+npx clear-npx-cache
+```
+
+**From source:**
+
+```bash
+git pull origin main
+npm install && npm run build
+```
+
+**Check your current version:**
+
+```bash
+npx -y mcp-obsidian-vault --version
+# Or ask your AI agent: "What version of mcp-obsidian-vault are you running?"
+```
+
+### Uninstalling
+
+<details>
+<summary><b>Claude Code</b></summary>
+
+```bash
+claude mcp remove obsidian
+```
+</details>
+
+<details>
+<summary><b>Claude Desktop</b></summary>
+
+Remove the `"obsidian"` entry from `mcpServers` in `claude_desktop_config.json`.
+</details>
+
+<details>
+<summary><b>opencode</b></summary>
+
+Remove the `"obsidian"` entry from `mcp` in `~/.config/opencode/opencode.json`.
+</details>
+
+<details>
+<summary><b>Codex CLI</b></summary>
+
+Remove the `[mcp_servers.obsidian]` section from your Codex config.
+</details>
+
+<details>
+<summary><b>Clean up npx cache (optional)</b></summary>
+
+```bash
+# Remove the cached package
+npx clear-npx-cache
+```
+</details>
+
+<details>
+<summary><b>From source</b></summary>
+
+```bash
+rm -rf obsidian-mcp-server
+```
+</details>
+
+Your vault data (notes, tasks, decisions, discoveries) is never deleted — it stays in your Obsidian vault folder. Only the MCP server tool is removed.
+
 ### 2. Try It
 
 Once configured, open a chat with your AI agent and try these:
@@ -1212,7 +1285,7 @@ src/
 
 prompts/                  # Agent persona prompts (ship with npm)
 skills/                   # Agent skills (ship with npm, skills.sh compatible)
-test/run.mjs              # 342 integration tests
+test/run.mjs              # 375 integration tests
 ```
 
 ---
@@ -1222,9 +1295,83 @@ test/run.mjs              # 342 integration tests
 ```bash
 npm install
 npm run build             # TypeScript → build/
-npm test                  # 342 integration tests
+npm test                  # 375 integration tests
 npm run dev               # tsc --watch
 ```
+
+---
+
+## Contributing
+
+Contributions are welcome! Here's how to get started.
+
+### Setup
+
+```bash
+git clone https://github.com/t-rhex/obsidian-mcp-server.git
+cd obsidian-mcp-server
+npm install
+npm run build
+npm test              # All tests must pass
+```
+
+### Development Workflow
+
+1. **Create a branch** from `main`:
+   ```bash
+   git checkout -b feat/your-feature
+   ```
+
+2. **Make your changes.** Each tool lives in its own file under `src/tools/`. The pattern is consistent — look at any existing tool for the structure.
+
+3. **Add tests.** Tests are in `test/run.mjs` — plain Node.js assertions, no framework. Add your tests before the cleanup section at the end of the file.
+
+4. **Build and test:**
+   ```bash
+   npm run build && npm test
+   ```
+
+5. **Push and open a PR** against `main`:
+   ```bash
+   git push -u origin feat/your-feature
+   gh pr create
+   ```
+
+CI runs on Ubuntu + Windows across Node 18, 20, and 22. All 6 matrix jobs must pass.
+
+### Code Style
+
+- **TypeScript** with strict mode. No `any` unless absolutely necessary.
+- **One file per tool** in `src/tools/`. Export `schema` and `handler`.
+- **Every handler wrapped in `safeToolHandler()`** (from `src/errors.ts`) for consistent error handling.
+- **Zod v4** for input validation — note that `z.record()` requires two args: `z.record(z.string(), z.unknown())`.
+- **Atomic writes** — use `vault.writeNote()` which writes to a `.tmp` file then renames.
+- **Strip `undefined`** — never put `undefined` values in frontmatter objects. `serializeNote` strips them automatically, but avoid creating them upstream when possible.
+
+### Adding a New Tool
+
+1. Create `src/tools/your-tool.ts` with exported `schema` and `handler`
+2. Register it in `src/index.ts` (follow the existing pattern)
+3. Add integration tests in `test/run.mjs`
+4. Update the tool count in `README.md` and `package.json` description if applicable
+
+### Gotchas
+
+- **macOS `/tmp`** is a symlink to `/private/tmp` — always resolve paths with `realpathSync`
+- **gray-matter** crashes on `undefined` values in YAML — `serializeNote` handles this, but be aware
+- **`routing_rules[].deactivate`** — omit the key entirely rather than setting to `undefined`
+- **Windows path separators** — use `split(/[/\\]/)` not `split("/")`
+- **opencode** has no `env` field in MCP config — must use `sh -c` with inline env vars
+
+### Releases
+
+Releases are automated. When a PR is merged to `main` with a version bump in `package.json`, CI automatically:
+1. Detects the version change
+2. Runs the full test matrix
+3. Publishes to npm
+4. Creates a GitHub Release
+
+No manual publish steps needed. Just bump the version in your PR.
 
 ---
 
